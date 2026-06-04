@@ -46,6 +46,10 @@ jobs:
         run: touch out/.nojekyll
 
       - uses: actions/configure-pages@v5
+        with:
+          # Enable GitHub Pages (with GitHub Actions as the source) via the
+          # workflow token, so no repo-admin UI step is required.
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
