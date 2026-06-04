@@ -178,8 +178,23 @@ async function main() {
   }
 
   let count = 0;
+  const skipped = [];
   for (const entry of readmes) {
-    const body = await readFile(path.join(repoRoot, entry.source), "utf8");
+    let body;
+    try {
+      body = await readFile(path.join(repoRoot, entry.source), "utf8");
+    } catch (error) {
+      // The docs site can be built in isolation (e.g. a docs-only repo), where
+      // the package READMEs that live next to the code are not checked out.
+      // Skip those sources instead of failing the whole build; the matching
+      // `readme-<slug>` pages simply won't be generated. Behavior is unchanged
+      // when every source README is present.
+      if (error.code === "ENOENT") {
+        skipped.push(entry.source);
+        continue;
+      }
+      throw error;
+    }
     const page = renderPage(entry, body);
 
     for (const lang of languages) {
@@ -191,8 +206,13 @@ async function main() {
   }
 
   console.log(
-    `Generated ${count} embedded README pages (${readmes.length} READMEs x ${languages.length} languages)`,
+    `Generated ${count} embedded README pages (${readmes.length - skipped.length}/${readmes.length} READMEs x ${languages.length} languages)`,
   );
+  if (skipped.length > 0) {
+    console.warn(
+      `Skipped ${skipped.length} README source(s) not present in this checkout:\n  - ${skipped.join("\n  - ")}`,
+    );
+  }
 }
 
 main().catch((error) => {
