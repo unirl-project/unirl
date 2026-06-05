@@ -36,6 +36,8 @@ pre-commit install
 
 如需把重型 reward model 放到独立 GPU 节点而非进程内运行，使用 `unirl-reward-service/` 下的独立远程 reward service（它自带依赖和 README）。远程 backend 的接线见 [奖励](/zh/docs/guides/rewards)。
 
+可选的 rollout→trainer 数据面总线（TransferQueue / Mooncake）同样需要单独安装。见 [TransferQueue 安装](/zh/docs/getting-started/transfer-queue-installation)。
+
 ## 文档站
 
 Fumadocs 文档站放在 `docs/`，与 Python 包隔离：

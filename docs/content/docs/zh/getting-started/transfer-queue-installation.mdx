@@ -1,0 +1,253 @@
+---
+title: TransferQueue 安装
+description: 可选的 rollout→trainer 数据面总线（Simple 与 Mooncake 两种 backend）。
+---
+
+[TransferQueue](https://github.com/Ascend/TransferQueue)（TQ）是 UniRL 可选的
+**rollout→trainer 数据面总线**：在 `separate` / `colocate` 采样模式下，体量较大的 rollout 输出
+（conditions、latents、rewards）通过它流转，而不经过 driver。它**不属于** UniRL 声明的依赖——
+按需懒加载，需要单独安装到同一个环境中。关于它与 weight sync 的区别，见
+`unirl/distributed/weight_sync/README.md`（"Transfer Queue — Separate Concern"）；集成代码位于
+`unirl/distributed/tensor/backend/transfer_queue/`（`runtime.py`、`simple.py`、`mooncake.py`、`transport.py`）。
+
+UniRL 通过 Hydra `transfer_queue` 配置组接入两种 TQ 存储 backend：
+
+| Backend | 适用场景 | 安装成本 | 外部服务 |
+|---|---|---|---|
+| **Simple**（`AsyncSimpleStorageManager`） | 开发、单节点、功能测试 | 仅需基础 TQ | 无——进程内 Ray actor |
+| **Mooncake**（`MooncakeStorageManager`） | 生产、多节点、零拷贝 RDMA | 基础 TQ + Mooncake 引擎 | 外部 `mooncake_master` + metadata server |
+
+TQ 默认**关闭**（`transfer_queue` 组没有 Hydra defaults 条目）；按 experiment 逐个开启。
+
+---
+
+## 1. 前置条件
+
+- 目标 venv 中已安装 UniRL（`pip install -e ".[train,infer,eval]" --no-build-isolation`），Python **≥3.10**，已装 PyTorch。见 [安装](/zh/docs/getting-started/installation)。
+- 把 TQ 安装到**同一个**环境。
+- **仅 Mooncake：** 每个节点都需要支持 RDMA 的网卡（InfiniBand / RoCE）；在 TaiJi 上做源码编译时还需要 `root`。
+
+---
+
+## 2. 安装基础 TransferQueue 包
+
+两种 backend 都需要 `transfer_queue` Python 包。
+
+### 方式 A —— PyPI（仅 Simple backend）
+
+```bash
+pip install TransferQueue
+```
+
+### 方式 B —— 源码安装（Mooncake 必需）
+
+零拷贝 Mooncake 客户端位于 **`v0.1.5_mooncake`** 分支（与 Mooncake `v0.3.10.post1` 对应）；
+PyPI 发布版不包含它。以 editable + `--no-deps` 方式安装，避免扰动 UniRL 已锁定的依赖：
+
+```bash
+git clone -b v0.1.5_mooncake git@git.woa.com:MMRL_Infra/TransferQueue.git
+cd TransferQueue
+pip install -e . --no-deps
+```
+
+TQ 的运行时依赖大多 UniRL 已具备（`ray[default]`、`hydra-core`、`numpy<2.0.0`、`torch`）。
+只需补装少数尚未提供的依赖——注意 **`numpy<2.0.0`** 上限：
+
+```bash
+pip install "tensordict>=0.10.0" pyzmq msgspec psutil
+```
+
+### 验证
+
+```bash
+python -c "import transfer_queue; print(transfer_queue.__version__)"
+```
+
+源码 `v0.1.5_mooncake` 分支（方式 B）输出 `0.1.5`；PyPI 发布版（方式 A）输出最新发布版本
+（例如 `0.1.7`）。
+
+---
+
+## 3. Simple backend（内存）
+
+无原生依赖——它会拉起 `SimpleStorageUnit` Ray actor（默认 `num_units=16`、`unit_size=1024`）。
+装好基础 TQ（§2）后，按 experiment 开启。
+
+CLI override（该组没有默认值，所以用 `+` **追加**）：
+
+```bash
+python -m unirl.train_diffusion --config-name=<bucket>/<recipe> \
+    +transfer_queue=simple
+```
+
+或在 recipe YAML `recipes/<bucket>/<recipe>.yaml` 中：
+
+```yaml
+defaults:
+  - transfer_queue: simple
+# 可选 override：
+transfer_queue:
+  num_units: 16
+  unit_size: 1024
+```
+
+最适合单节点运行和功能测试。生产规模请用 Mooncake。
+
+---
+
+## 4. Mooncake backend（零拷贝 RDMA）
+
+UniRL 的 `MooncakeBackend` 是**纯客户端**——存储段位于**外部** Mooncake 服务上，UniRL *不会*
+替你启动它。四步：安装引擎、满足 RDMA 前置条件、运行服务、接线配置。
+
+### 4.1 安装 Mooncake 引擎
+
+它提供 `mooncake.store` Python 模块和 `mooncake_master` 二进制。
+
+**通用 Linux**（预编译 wheel——在 wheel 的 glibc/ABI 与主机匹配时可用）：
+
+```bash
+pip install mooncake-transfer-engine   # 使用与 Mooncake v0.3.10.post1 对应的版本
+```
+
+**TaiJi / 源码编译**（需要针对 pod 驱动做 RDMA，或 glibc 不匹配时）。从 TransferQueue checkout
+（§2 方式 B）执行：
+
+```bash
+cd TransferQueue/scripts/install_mooncake
+sudo ./install_mooncake.sh
+```
+
+该脚本做了什么——**运行前请先读**：需要 `root`；通过 `yum` 安装系统包；克隆并编译
+**Mooncake `v0.3.10.post1`** 以及 Go 1.23.8、boost 1.90、gflags 2.3、yaml-cpp 0.9、gtest 1.17、
+yalantinglibs 0.5.7；并在 `~/.bashrc` 的 `LD_LIBRARY_PATH` 追加 `/usr/local/lib64:/usr/local/lib`。
+它会在从源码重建前先 `yum remove` 发行版的 `gtest`/`yaml-cpp`/`boost` 开发包，所以请在**可丢弃的
+pod**上运行。可调项：`MOONCAKE_WORKDIR`（默认 `/dockerdata/data/Mooncake`）、`GITHUB_PROXY`、
+`http_proxy` / `https_proxy`。见 TransferQueue 仓库的 `scripts/install_mooncake/README.md`。
+
+**验证：**
+
+```bash
+python -c "from mooncake.store import MooncakeDistributedStore; print('mooncake ok')"
+mooncake_master --help            # 二进制已在 PATH
+source ~/.bashrc                  # 若源码编译刚刚追加了 LD_LIBRARY_PATH
+```
+
+### 4.2 RDMA 前置条件
+
+```bash
+ibv_devices ; ibstat               # 列出 RDMA 网卡（需要 libibverbs + 驱动）
+ls /sys/class/infiniband           # UniRL 从这里自动发现 device_name
+```
+
+UniRL 会自动发现 `device_name`（来自 `/sys/class/infiniband` 的 RDMA bond 逗号列表），并设置
+`MC_ENABLE_DEST_DEVICE_AFFINITY=1`，让每个进程绑定与其 GPU 的 PIX 距离最近的 HCA——**通常无需自己
+设置 `device_name`**。只在排障时 override：`transfer_queue.device_name=mlx5_0`。没有 RDMA fabric？
+用 `transfer_queue.protocol=tcp` 回退（更慢）。若启动时报 *"no InfiniBand device found under
+/sys/class/infiniband"*，说明主机没有可用的 RDMA 网卡。
+
+### 4.3 运行外部 Mooncake 服务（head 节点）
+
+`mooncake_master` 同时提供 RPC master 和内置 HTTP metadata server：
+
+```bash
+mooncake_master \
+  --rpc_port=50051 \
+  --enable_http_metadata_server=true \
+  --http_metadata_server_host=0.0.0.0 \
+  --http_metadata_server_port=8080
+# 在容器内，追加 --rpc_interface=eth0 以绑定可路由的 IPv4
+```
+
+由此得到客户端配置所需的两个端点：
+
+- `master_server_address` → `<head_ip>:50051`
+- `metadata_server` → `http://<head_ip>:8080/metadata`
+
+训练期间保持运行。内置 HTTP metadata server 是单节点的；要做 HA 请改用外部 `etcd`。
+
+### 4.4 接线 UniRL 配置
+
+```bash
+python -m unirl.train_diffusion --config-name=<bucket>/<recipe> \
+    +transfer_queue=mooncake \
+    transfer_queue.metadata_server=http://<head_ip>:8080/metadata \
+    transfer_queue.master_server_address=<head_ip>:50051 \
+    transfer_queue.protocol=rdma \
+    transfer_queue.global_segment_size_gb=64 \
+    transfer_queue.local_buffer_size_gb=10
+```
+
+字段（定义于 `unirl/distributed/tensor/backend/transfer_queue/mooncake.py`）：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `metadata_server` | —（**必填**） | 来自 §4.3 的 `http://<head_ip>:8080/metadata` |
+| `master_server_address` | —（**必填**） | 来自 §4.3 的 `<head_ip>:50051` |
+| `protocol` | `rdma` | `rdma` 或 `tcp` |
+| `global_segment_size_gb` | `64` | 上游段池总量 |
+| `local_buffer_size_gb` | `10` | 每客户端本地缓冲 |
+| `device_name` | auto | 自动发现的 HCA 列表；仅排障时 override |
+| `zero_copy.enable` | `true` | RDMA 零拷贝缓冲 |
+| `zero_copy.tensor_buffer_size_gb` / `bytes_buffer_size_gb` | `2.0` / `2.0` | 每客户端缓冲（controller 为 `10.0` / `10.0`） |
+
+---
+
+## 5. 环境变量
+
+| 变量 | 由谁设置 | 用途 |
+|---|---|---|
+| `TQ_ZERO_COPY_SERIALIZATION` | 你 | TQ 序列化模式（`True`/`False`） |
+| `TQ_LOGGING_LEVEL` | 你 | TQ 日志级别（默认 `WARN`） |
+| `LOCAL_IP` | 你（可选） | 每个 Mooncake 客户端绑定的可路由 IP；否则从 hostname 自动推断 |
+| `MOONCAKE_WORKDIR` | 你（可选） | `install_mooncake.sh` 的编译目录（默认 `/dockerdata/data/Mooncake`） |
+| `GITHUB_PROXY`、`http_proxy`、`https_proxy` | 你（TaiJi） | 源码编译用的代理 |
+| `MC_ENABLE_DEST_DEVICE_AFFINITY` | **UniRL** | `=1` 启用每进程 GPU↔HCA 亲和 |
+| `MC_TCP_BIND_ADDRESS` | **UniRL** | 设为 `LOCAL_IP`，让 Mooncake 绑定正确的网卡 |
+| `MC_MS_AUTO_DISC` / `MC_MS_FILTERS` | 你（可选） | Mooncake 网卡/GPU 拓扑自动发现 / 白名单 |
+| `LD_LIBRARY_PATH` | 源码编译 | 必须包含 `/usr/local/lib64:/usr/local/lib` |
+
+---
+
+## 6. 端到端验证
+
+```bash
+# 导入
+python -c "import transfer_queue; print(transfer_queue.__version__)"
+python -c "from mooncake.store import MooncakeDistributedStore; print('mooncake ok')"   # 仅 Mooncake
+
+# Simple backend 冒烟测试（无原生依赖）
+python -m unirl.train_diffusion --config-name=<small_recipe> +transfer_queue=simple
+
+# TQ 独立 sanity（在 TransferQueue checkout 内——当前 demo 文件见仓库的
+# recipe/simple_use_case/ 和 tutorial/ 目录）
+python recipe/simple_use_case/single_controller_demo.py
+pytest                              # CPU 测试套件
+```
+
+对于 Mooncake，完整 RDMA 链路必须在 **TaiJi GPU pod** 上验证：启动 `mooncake_master`，用
+`+transfer_queue=mooncake`（§4.4）启动训练，确认没有 `ImportError`/`-800`，并且 rollout→train
+数据正常流转。
+
+---
+
+## 7. 排障
+
+| 现象 | 处理 |
+|---|---|
+| `ImportError: Mooncake Store not installed` | 把引擎（§4.1）装到**同一个** venv。 |
+| 依赖解析器拉入 `numpy>=2` | TQ 要求 `numpy<2.0.0`；固定它。 |
+| `no InfiniBand device found under /sys/class/infiniband` | 没有可用的 RDMA 网卡——换到 RDMA 主机，或设 `transfer_queue.protocol=tcp`。 |
+| Mooncake `setup()` 在部分 rank 返回 `-800` | NUMA 不匹配的 HCA。确保 `MC_ENABLE_DEST_DEVICE_AFFINITY=1`（UniRL 会设置）且 `device_name` 为逗号列表；必要时用 `transfer_queue.device_name=` 固定。见 Mooncake [错误码](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)。 |
+| 客户端连不上 master/metadata（超时 / 拒绝） | `mooncake_master` 未运行或 host/port 错误；确保 `50051`/`8080` 跨节点可达；设 `LOCAL_IP` 让客户端绑定可路由网卡。 |
+| 运行时找不到 `*.so`（源码编译） | `LD_LIBRARY_PATH` 必须包含 `/usr/local/lib64:/usr/local/lib`；`source ~/.bashrc`。 |
+| Wheel 导入时报 glibc/ABI 错误 | 通过 `install_mooncake.sh`（§4.1）从源码编译。 |
+
+---
+
+## 8. 参考
+
+- UniRL 集成：`unirl/distributed/tensor/backend/transfer_queue/{runtime,simple,mooncake,transport}.py`
+- backend 与 weight sync 的区分：`unirl/distributed/weight_sync/README.md`
+- TransferQueue 上游（canonical）：<https://github.com/Ascend/TransferQueue>（由 Ascend 团队开发；较旧的 <https://github.com/TransferQueue/TransferQueue> 已归档）。UniRL 固定使用内部 Mooncake fork `git@git.woa.com:MMRL_Infra/TransferQueue.git`（`v0.1.5_mooncake`）；上游 Mooncake 安装说明：`scripts/install_mooncake/README.md`
+- Mooncake：<https://github.com/kvcache-ai/Mooncake>（`v0.3.10.post1`）—— [部署指南](https://kvcache-ai.github.io/Mooncake/deployment/mooncake-store-deployment-guide.html)、[错误码](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)

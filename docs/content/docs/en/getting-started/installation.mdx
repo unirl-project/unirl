@@ -38,6 +38,10 @@ Treat `pyproject.toml` as the dependency source of truth. `setup.py` exists for 
 
 To run heavy reward models on their own GPU node instead of in-process, use the standalone remote reward service in `unirl-reward-service/` (it ships its own dependencies and README). See [Rewards](/en/docs/guides/rewards) for wiring the remote backend.
 
+The optional rollout→trainer data-plane bus (TransferQueue / Mooncake) is also installed separately. See [TransferQueue Installation](/en/docs/getting-started/transfer-queue-installation).
+
+The optional rollout→trainer data-plane bus (TransferQueue / Mooncake) is also installed separately. See [TransferQueue Installation](/en/docs/getting-started/transfer-queue-installation).
+
 ## Documentation Site
 
 The Fumadocs site is isolated in `docs/` so Node dependencies do not affect the Python package:
