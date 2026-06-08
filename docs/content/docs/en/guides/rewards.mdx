@@ -37,4 +37,4 @@ Reward failures are loud, never silent: a non-finite or `null` reward is flagged
 
 ## Adding a Local Scorer
 
-Add the spec and scorer near the reward implementation under `unirl/reward/local/`. Prefer `LocalRewardBackend` for in-process model scorers because it provides device resolution, eager load, `offload()`, and `onload()`. Register the spec with `@register_config(group="reward/component", ...)`. See the generated [Reward Package README](/en/docs/guides/readme-reward-package) for the full example and the remote wire contract.
+Add the spec and scorer near the reward implementation under `unirl/reward/local/`. Prefer `LocalRewardBackend` for in-process model scorers because it provides device resolution, eager load, `offload()`, and `onload()`. Define the spec as a plain `@dataclass` and reference it by `_target_` under `reward.backend.config` in the recipe (no registration step). See the generated [Reward Package README](/en/docs/guides/readme-reward-package) for the full example and the remote wire contract.

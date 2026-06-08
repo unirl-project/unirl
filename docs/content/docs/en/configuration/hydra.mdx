@@ -3,19 +3,19 @@ title: Hydra Configuration
 description: How UniRL composes, validates, and overrides runtime configuration.
 ---
 
-UniRL uses Hydra. Recipes are self-contained YAML files under `recipes/`, bucketed by trainer domain (`diffusion_rl/`, `vlm_rl/`, `llm_rl/`, `pe_rl/`, `unified_model_rl/`); each training run selects one with `--config-name`:
+UniRL uses Hydra. Recipes are self-contained YAML files under `examples/`, bucketed by trainer domain (`diffusion/`, `vlm/`, `llm/`, `pe/`, `unified_model/`); each training run selects one with `--config-name`:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe>
+python -m unirl.train_diffusion --config-name=<domain>/<recipe>
 ```
 
 ## Composition
 
-A recipe instantiates each runtime component directly by `_target_` (FSDP backend, train stack, rollout engine, reward service, algorithm, data source, …). The typed config dataclasses are registered by `@register_config` inside the `unirl` package. Use the generated [Config Package README](/en/docs/configuration/readme-config-package) for the registration, instantiation, and validation contracts.
+A recipe instantiates each runtime component directly by `_target_` (FSDP backend, train stack, rollout engine, reward service, algorithm, data source, …). Config classes are plain `@dataclass`es defined next to the code that consumes them — there is no ConfigStore and no registration decorator. A recipe wires a component by pointing its `_target_` at the class and nesting the component's `config:` block (also a `_target_`). Use the generated [Config Package README](/en/docs/configuration/readme-config-package) for the instantiation and validation contracts.
 
 ## Where Knobs Belong
 
-Keep recipe-defining choices in `recipes/<bucket>/<recipe>.yaml`. Keep cluster-local paths, model mounts, output directories, and WandB identity in launcher environment variables or CLI overrides (recipes interpolate them with `${oc.env:...}`). New typed runtime components should define their config dataclass near the implementation and register it with `@register_config`.
+Keep recipe-defining choices in `examples/<domain>/<recipe>.yaml`. Keep cluster-local paths, model mounts, output directories, and WandB identity in launcher environment variables or CLI overrides (recipes interpolate them with `${oc.env:...}`). A new typed runtime component should define its config `@dataclass` next to the implementation; a recipe then references it by `_target_` (no registration step).
 
 Override precedence is:
 
@@ -32,5 +32,5 @@ Cross-component validators run before Ray worker creation. The implementation de
 Use a compose check before launching a large job:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve
 ```

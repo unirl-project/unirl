@@ -37,4 +37,4 @@ reward 失败是 loud 而非 silent：non-finite 或 `null` reward 会被标记�
 
 ## 新增 Local Scorer
 
-在 `unirl/reward/local/` 旁实现 spec 和 scorer。进程内模型 scorer 推荐从 `LocalRewardBackend` 开始，因为它提供 device 解析、eager load、`offload()` 和 `onload()`。用 `@register_config(group="reward/component", ...)` 注册 spec。完整模板和远程 wire contract 见生成的 [Reward Package README](/zh/docs/guides/readme-reward-package)。
+在 `unirl/reward/local/` 旁实现 spec 和 scorer。进程内模型 scorer 推荐从 `LocalRewardBackend` 开始，因为它提供 device 解析、eager load、`offload()` 和 `onload()`。用普通 `@dataclass` 定义 spec，在 recipe 的 `reward.backend.config` 下用 `_target_` 引用它（无需注册步骤）。完整模板和远程 wire contract 见生成的 [Reward Package README](/zh/docs/guides/readme-reward-package)。

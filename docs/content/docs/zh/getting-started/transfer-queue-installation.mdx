@@ -76,11 +76,11 @@ python -c "import transfer_queue; print(transfer_queue.__version__)"
 CLI override（该组没有默认值，所以用 `+` **追加**）：
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe> \
+python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
     +transfer_queue=simple
 ```
 
-或在 recipe YAML `recipes/<bucket>/<recipe>.yaml` 中：
+或在 recipe YAML `examples/<domain>/<recipe>.yaml` 中：
 
 ```yaml
 defaults:
@@ -169,7 +169,7 @@ mooncake_master \
 ### 4.4 接线 UniRL 配置
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe> \
+python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
     +transfer_queue=mooncake \
     transfer_queue.metadata_server=http://<head_ip>:8080/metadata \
     transfer_queue.master_server_address=<head_ip>:50051 \
@@ -249,5 +249,5 @@ pytest                              # CPU 测试套件
 
 - UniRL 集成：`unirl/distributed/tensor/backend/transfer_queue/{runtime,simple,mooncake,transport}.py`
 - backend 与 weight sync 的区分：`unirl/distributed/weight_sync/README.md`
-- TransferQueue 上游（canonical）：<https://github.com/Ascend/TransferQueue>（由 Ascend 团队开发；较旧的 <https://github.com/TransferQueue/TransferQueue> 已归档）。UniRL 固定使用内部 Mooncake fork `git@git.woa.com:MMRL_Infra/TransferQueue.git`（`v0.1.5_mooncake`）；上游 Mooncake 安装说明：`scripts/install_mooncake/README.md`
-- Mooncake：<https://github.com/kvcache-ai/Mooncake>（`v0.3.10.post1`）—— [部署指南](https://kvcache-ai.github.io/Mooncake/deployment/mooncake-store-deployment-guide.html)、[错误码](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)
+- TransferQueue 上游（canonical）：[https://github.com/Ascend/TransferQueue](https://github.com/Ascend/TransferQueue)（由 Ascend 团队开发；较旧的 [https://github.com/TransferQueue/TransferQueue](https://github.com/TransferQueue/TransferQueue) 已归档）。UniRL 固定使用内部 Mooncake fork `git@git.woa.com:MMRL_Infra/TransferQueue.git`（`v0.1.5_mooncake`）；上游 Mooncake 安装说明：`scripts/install_mooncake/README.md`
+- Mooncake：[https://github.com/kvcache-ai/Mooncake](https://github.com/kvcache-ai/Mooncake)（`v0.3.10.post1`）—— [部署指南](https://kvcache-ai.github.io/Mooncake/deployment/mooncake-store-deployment-guide.html)、[错误码](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)

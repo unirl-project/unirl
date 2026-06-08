@@ -55,7 +55,7 @@ they just get less coverage. Planning horizon: **2026 H1**.
 
 ### `[ ]` `P0` VeOmni Training Backend
 
-- **Baseline.** The trainer exposes a swappable `backend:` block (see `recipes/*/*.yaml`);
+- **Baseline.** The trainer exposes a swappable `backend:` block (see `examples/<domain>/*.yaml`);
   today the only implementation is the native `FSDPBackend`
   (`unirl/train/backend/fsdp.py`: FSDP2 wrap plus LoRA / NFT / EMA injection, offload,
   checkpoint). `TrainTopology` already carries `dp / tp / pp / sp / ep / cp` fields, but only
@@ -86,7 +86,7 @@ they just get less coverage. Planning horizon: **2026 H1**.
   family** (DR-Tune and other reward-feedback methods — see Algorithm below).
 - **Tracking.** *(RFC needed)*
 - TODO:
-  - `[ ]` Add differentiable train-side reward scorers (today's `reward/scorers`, e.g.
+  - `[ ]` Add differentiable train-side reward scorers (today's `reward/local`, e.g.
     ImageReward / HPS / PickScore, run under `torch.no_grad()` and return scalars).
   - `[ ]` Gradient-checkpointed sampling replay plus stop-gradient hooks on denoiser inputs
     for memory-bounded back-propagation through steps.
@@ -116,7 +116,7 @@ they just get less coverage. Planning horizon: **2026 H1**.
 
 ### `[ ]` `P1` Async Reward Overlap
 
-- **Baseline.** `reward/scorers` already includes OCR, aesthetic, CLIP, HPS, PickScore,
+- **Baseline.** `reward/local` already includes OCR, aesthetic, CLIP, HPS, PickScore,
   ImageReward, VideoPickScore, rule-based exact match, and related components, with a reward
   service execution path. The remaining gap is scheduling reward computation as an independent
   stage that overlaps rollout / training.
@@ -308,8 +308,8 @@ infra (see Infra above) and collects several algorithm types.
 ### `[ ]` `P1` Core Image DiT Support Matrix
 
 - **Baseline.** The repo already has `sd3`, `qwen_image`, and `flux2_klein` model packages;
-  `mixgrpo_sd35.yaml` brings in SD3.5 as an `sd3` checkpoint / recipe variant, and
-  `grpo_flux2_klein9b_*` recipes already exist. In the Diffusers ecosystem, SD3.5,
+  `sd3_mixgrpo` brings in SD3.5 as an `sd3` checkpoint / recipe variant, and
+  `flux2_klein_*` recipes already exist. In the Diffusers ecosystem, SD3.5,
   Qwen-Image (including edit / inpaint), and FLUX are the key image DiT / flow-matching
   families.
 - **Goal.** Promote image DiT support from runnable recipes to a first-class support matrix that
@@ -317,7 +317,7 @@ infra (see Infra above) and collects several algorithm types.
 - **Tracking.** *(RFC needed)*
 - TODO:
   - `[ ]` Confirm SD3.5's boundary as an `sd3` package checkpoint variant and promote the
-    existing `mixgrpo_sd35` recipe.
+    existing `sd3_mixgrpo` recipe.
   - `[ ]` Add Qwen-Image trainside / vLLM-Omni smoke coverage, OCR / text-rendering reward
     baselines, and documented LoRA targets plus FSDP wrap hints.
   - `[ ]` Promote FLUX.2 Klein from existing recipes to first-class support; keep FLUX.1 dev /
@@ -328,8 +328,8 @@ infra (see Infra above) and collects several algorithm types.
 
 ### `[ ]` `P2` Video RL Model Track
 
-- **Baseline.** The repo already has `wan21`, `wan22`, and `hunyuan_video15` packages plus
-  `grpo_wan21_*`, `grpo_wan22_*`, and `grpo_hunyuan_video15_t2v_videopickscore` recipes.
+- **Baseline.** The repo already has `wan21`, `wan22`, `hunyuan_video`, and `hunyuan_video15`
+  packages plus `wan21_*`, `wan22_*`, and `hunyuan_video15_t2v_*` recipes.
   In Diffusers, Wan2.1 / Wan2.2, HunyuanVideo, and CogVideoX are the major video pipelines.
 - **Goal.** Harden long-video RL for Wan2.2 and HunyuanVideo1.5 rather than starting video
   support from scratch; keep CogVideoX as a P2 / candidate target.

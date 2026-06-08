@@ -22,7 +22,7 @@ VideoPickScore，以及基于规则的匹配器。
 
 - `EVAL_DATA_PATH` → `run.eval_data_path` 选择独立的 eval prompt 文件，按确定性（不 shuffle）顺序加载；
   未设置时回退到 `run.data_path`。
-- `cfg.evaluation.eval_steps` 在部分 recipe 里存在（如 WAN 和 `argrpo_qwen_vl_geo3k_mc_4x8`），很多 SD3 recipe 设为 `0`。
+- `cfg.evaluation.eval_steps` 在部分 recipe 里存在（如 WAN 和 `qwen_vl_argrpo_geo3k_mc_4x8`），很多 SD3 recipe 设为 `0`。
 
 这些会喂给已实现但当前无 driver 调用方的 helper（`get_eval_samples`、`build_eval_request_batch`、
 `should_eval`、`run_eval_pipeline`、`log_eval`）。在周期 eval hook 落地前，把它们当作前瞻性接口。

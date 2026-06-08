@@ -3,32 +3,51 @@ title: 安装
 description: 安装 UniRL 运行环境和可选文档站。
 ---
 
-UniRL 要求 Python 3.10 或更新版本。推荐使用 editable install，并安装训练、推理、评估 extras。
+UniRL 要求 Python `>=3.12,<3.14`。`torch` **不是**基础依赖：它只通过两个互斥的**引擎 extra**（`sglang` 或 `vllm`）之一引入，这样每个引擎才能锁定各自的 CUDA 栈。你必须选择其中一个引擎 extra。
 
 ## Python 包
 
-安装核心运行依赖：
+推荐使用 [uv](https://docs.astral.sh/uv/)，它会遵循 `pyproject.toml`（`[tool.uv]`）中声明的、按引擎锁定的 CUDA index：
 
 ```bash
-pip install -e ".[train,infer,eval]" --no-build-isolation
-pip install flash-attn==2.7.4.post1 --no-build-isolation
+# SGLang rollout 栈（torch 2.9.1+cu129, flash-attn-4）
+uv sync --extra sglang --extra train --extra infer --extra eval
+
+# 或 vLLM / vLLM-Omni 栈（torch 2.11.0+cu129, vllm 0.20.0）
+uv sync --extra vllm --extra train --extra infer --extra eval
 ```
 
-需要测试、lint 和 hooks 时安装开发依赖：
+`sglang` 和 `vllm` 被声明为冲突 extra，不能同时安装——按你的 rollout engine 选择其一。
+
+如果环境已经提供了兼容的 torch/CUDA 构建，也可以用 `pip`：
 
 ```bash
-pip install -e ".[train,infer,eval,dev]" --no-build-isolation
+pip install -e ".[sglang,train,infer,eval]" --no-build-isolation
+```
+
+需要测试、lint 和 hooks 时加上 `dev`：
+
+```bash
+uv sync --extra sglang --extra train --extra infer --extra eval --extra dev
 pre-commit install
 ```
 
-`pyproject.toml` 是依赖声明的 source of truth。`setup.py` 主要兼容旧 editable install 工具，`requirements.txt` 是与推荐 extras 路径对齐的扁平安装辅助文件。
+## 可选 Extra
+
+`pyproject.toml` 是依赖声明的 source of truth。各 extra：
 
 | Extra | 用途 |
 |---|---|
-| `train` | WandB 和异步运行时依赖 |
-| `infer` | 推理侧辅助依赖 |
-| `eval` | 评估和 reward 相关依赖 |
+| `sglang` | SGLang rollout engine + 锁定的 torch/torchvision/torchaudio `+cu129` 栈和 `flash-attn-4`（Linux） |
+| `vllm` | vLLM + vLLM-Omni rollout engine + 锁定的 torch `+cu129` 栈（Linux） |
+| `train` | WandB 和异步运行时依赖（`wandb`、`aiohttp`） |
+| `infer` | 推理侧辅助依赖（`accelerate`） |
+| `eval` | 评估/reward 依赖（`torchvision`、`easyocr`） |
 | `dev` | pytest、ruff、pre-commit |
+
+`sglang` 和 `vllm` 互斥（`[tool.uv].conflicts`）。在较旧 glibc 的 pod 上 vLLM wheel 常需从 sdist 现场构建；首次构建较慢（或设置 `VLLM_USE_PRECOMPILED=1`），uv 会按 pod 缓存。`setup.py` 仅兼容旧 editable install 工具。
+
+> 各引擎 extra 已经 pin 了匹配的 `flash-attn`（`sglang` extra pin 了 `flash-attn-4>=4.0.0b4`）；除非环境需要特定构建，不要再单独 `pip install flash-attn`。
 
 ## 可选依赖
 

@@ -51,7 +51,7 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
 
 ### `[ ]` `P0` VeOmni Training Backend
 
-- **现状。** trainer 已将 `backend:` 抽象为可替换的配置块（见 `recipes/*/*.yaml`），
+- **现状。** trainer 已将 `backend:` 抽象为可替换的配置块（见 `examples/<domain>/*.yaml`），
   当前唯一实现是原生的 `FSDPBackend`（`unirl/train/backend/fsdp.py`：FSDP2 wrap，叠加
   LoRA / NFT / EMA 注入、offload、checkpoint）。`TrainTopology` 中已经预留了
   `dp / tp / pp / sp / ep / cp` 字段，但目前只有 DP / FSDP 是 topology-driven；`train/inject.py`
@@ -78,7 +78,7 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
   这是 **REFL 算法家族**（DR-Tune 以及其他 reward-feedback 方法——见下方算法一节）的 infra 前置条件。
 - **追踪。** *(RFC needed)*
 - TODO：
-  - `[ ]` 在 train actor 上新增可微的 train-side reward scorer（现有 `reward/scorers`，例如
+  - `[ ]` 在 train actor 上新增可微的 train-side reward scorer（现有 `reward/local`，例如
     ImageReward / HPS / PickScore，均在 `torch.no_grad()` 下执行、仅返回标量）。
   - `[ ]` 带 gradient checkpointing 的采样 replay，配合 denoiser 输入上的 stop-gradient hook，
     实现显存可控的逐步反传。
@@ -130,7 +130,7 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
 
 ### `[ ]` `P1` Async Reward Overlap
 
-- **现状。** `reward/scorers` 已包含 OCR、aesthetic、CLIP、HPS、PickScore、ImageReward、
+- **现状。** `reward/local` 已包含 OCR、aesthetic、CLIP、HPS、PickScore、ImageReward、
   VideoPickScore、rule-based exact match 等组件，也已有 reward service 执行路径；缺口主要是 reward
   计算仍未作为独立调度阶段与 rollout / train 重叠。
 - **目标。** 参考 verl-omni 的 async reward 方向，将重型 reward model 独立为 actor / GPU，
@@ -288,15 +288,15 @@ REFL 训练 infra（见上方框架一节）之上，下面汇集若干算法类
 
 ### `[ ]` `P1` Core Image DiT 支持矩阵
 
-- **现状。** 仓库已有 `sd3`、`qwen_image`、`flux2_klein` 模型包；`mixgrpo_sd35.yaml`
-  已把 SD3.5 作为 `sd3` 系列 checkpoint / recipe 变体接入，`grpo_flux2_klein9b_*`
+- **现状。** 仓库已有 `sd3`、`qwen_image`、`flux2_klein` 模型包；`sd3_mixgrpo`
+  已把 SD3.5 作为 `sd3` 系列 checkpoint / recipe 变体接入，`flux2_klein_*`
   recipe 也已存在。Diffusers 生态中，SD3.5、Qwen-Image（含 edit / inpaint）与 FLUX
   是当前 image DiT / flow-matching 的核心模型族。
 - **目标。** 把已有 image DiT 支持从“可跑 recipe”提升为核心支持矩阵：明确每个模型的训练、rollout、
   reward 与 smoke 覆盖面。
 - **追踪。** *(RFC needed)*
 - TODO：
-  - `[ ]` 为 SD3.5 确认其作为 `sd3` package checkpoint 变体的配置边界，并提级现有 `mixgrpo_sd35` recipe。
+  - `[ ]` 为 SD3.5 确认其作为 `sd3` package checkpoint 变体的配置边界，并提级现有 `sd3_mixgrpo` recipe。
   - `[ ]` 为 Qwen-Image 补齐 trainside / vLLM-Omni smoke、OCR / text-rendering reward baseline，
     并记录 LoRA target 与 FSDP wrap hints。
   - `[ ]` 将 FLUX.2 Klein 从已有 recipe 提升为核心支持；FLUX.1 dev / schnell / fill / control /
@@ -306,8 +306,8 @@ REFL 训练 infra（见上方框架一节）之上，下面汇集若干算法类
 
 ### `[ ]` `P2` Video RL 模型线
 
-- **现状。** 仓库已有 `wan21`、`wan22`、`hunyuan_video15` 模型包与
-  `grpo_wan21_*`、`grpo_wan22_*`、`grpo_hunyuan_video15_t2v_videopickscore`
+- **现状。** 仓库已有 `wan21`、`wan22`、`hunyuan_video`、`hunyuan_video15` 模型包与
+  `wan21_*`、`wan22_*`、`hunyuan_video15_t2v_*`
   recipe；Diffusers 中 Wan2.1 / Wan2.2、HunyuanVideo、CogVideoX 是主要视频 pipeline。
 - **目标。** 不从零支持视频模型，而是加固 Wan2.2 与 HunyuanVideo1.5 的长视频 RL 能力，
   将 CogVideoX 保持为 P2 / 候选。

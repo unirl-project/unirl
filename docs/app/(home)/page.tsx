@@ -112,8 +112,8 @@ export default function HomePage() {
             <div className="space-y-4 py-5">
               {[
                 ["Task domain", "Unified multimodal generative RL"],
-                ["Models", "Stable Diffusion 3, Qwen-Image, WAN, HunyuanImage3"],
-                ["Algorithms", "GRPO, DanceGRPO, MixGRPO, Flow-DPPO, NFT"],
+                ["Models", "Stable Diffusion 3 / 3.5, Qwen-Image, FLUX.2-Klein, WAN, HunyuanVideo, Qwen-VL, Qwen3, HunyuanImage3"],
+                ["Algorithms", "GRPO, DanceGRPO, MixGRPO, Flow-DPPO, NFT, DRPO"],
                 ["Entrypoint", "python -m unirl.train_diffusion"],
               ].map(([label, value]) => (
                 <div className="grid grid-cols-[7rem_1fr] gap-3 text-sm" key={label}>
@@ -125,7 +125,7 @@ export default function HomePage() {
             <div className="rounded-2xl bg-fd-muted p-4 font-mono text-xs leading-6 text-fd-muted-foreground">
               <p className="font-sans text-[0.7rem] font-medium uppercase tracking-wide text-fd-foreground">Quick start</p>
               <p className="mt-2">python -m unirl.train_diffusion \</p>
-              <p>&nbsp;&nbsp;--config-name=diffusion_rl/sd3_trainside \</p>
+              <p>&nbsp;&nbsp;--config-name=diffusion/sd3_trainside \</p>
               <p>&nbsp;&nbsp;num_devices=8</p>
             </div>
           </div>

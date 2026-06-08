@@ -3,32 +3,32 @@ title: Extending UniRL
 description: Where to add models, rollout engines, train-side algorithms, rewards, training backends, and recipes.
 ---
 
-Use existing boundaries rather than adding cross-cutting glue. Most extensions need one implementation package, one registered config, one recipe, and one focused test or compose check.
+Use existing boundaries rather than adding cross-cutting glue. Most extensions need one implementation package, one config dataclass, one recipe, and one focused test or compose check.
 
 ## Extension Map
 
-| Goal | Primary location | Required config |
+| Goal | Primary location | How a recipe wires it |
 |---|---|---|
-| Add a model | `unirl/models/<model_name>/` | `@register_config(group="model", name="<model_name>", target=...)` |
-| Add a rollout engine | `unirl/rollout/engine/<engine>/` | `@register_config(group="rollout/engine", name="<engine>", target=...)` |
-| Add a train-side algorithm | `unirl/algorithms/` | a `BaseAlgorithmConfig` subclass via `@register_config`, bound under a track's `algorithm:` node |
-| Add a reward scorer | `unirl/reward/local/` | `@register_config(group="reward/component", name=..., target=...)` |
+| Add a model | `unirl/models/<model_name>/` | `@dataclass` config referenced by `_target_` under the recipe's `model:` block |
+| Add a rollout engine | `unirl/rollout/engine/<engine>/` | `@dataclass` config referenced by `_target_` under `rollout:` |
+| Add a train-side algorithm | `unirl/algorithms/` | a `BaseAlgorithmConfig` subclass referenced by `_target_`, bound under a track's `algorithm:` node |
+| Add a reward scorer | `unirl/reward/local/` | a spec `@dataclass` referenced by `_target_` under `reward.backend.config` |
 | Add a training backend | `unirl/train/backend/` | the `Remote` backend contract (alongside `FSDPBackend`) |
-| Add a recipe | `recipes/<bucket>/<recipe>.yaml` | `--config-name=<bucket>/<recipe>` |
+| Add a recipe | `examples/<domain>/<recipe>.yaml` | `--config-name=<domain>/<recipe>` |
 
 ## Adding a Model
 
 1. Add `unirl/models/<model_name>/`.
-2. Register the model config in the `model` group.
+2. Define the model's config `@dataclass` next to it (referenced by `_target_` in the recipe).
 3. Implement a bundle that exposes the trainable stages needed by training and rollout.
 4. Add condition, text/vision, diffusion, and VAE helpers as needed.
-5. Add at least one `recipes/<bucket>/<recipe>.yaml` recipe.
+5. Add at least one `examples/<domain>/<recipe>.yaml` recipe.
 6. Document required external checkpoints through YAML env interpolation or launcher docs.
 
 ## Adding a Rollout Engine
 
 1. Add a typed config under `unirl/rollout/engine/<engine>/`.
-2. Register it in group `rollout/engine`.
+2. Reference it by `_target_` under the recipe's `rollout:` block.
 3. Implement the engine contract from `unirl/rollout/engine/base.py`.
 4. Return canonical `RolloutResp` data (populate `tracks[name]`).
 5. If the engine is dedicated, define trainer-to-rollout weight sync.
@@ -38,7 +38,7 @@ Use existing boundaries rather than adding cross-cutting glue. Most extensions n
 The training loss is a per-track `StageAlgorithm`. Add a new class only when the loss math changes (recipe compositions like DanceGRPO / MixGRPO reuse `DiffusionGRPO`).
 
 1. Subclass `StageAlgorithm` (`unirl/algorithms/base.py`).
-2. Define a config subclassing `BaseAlgorithmConfig` and register it with `@register_config`.
+2. Define a config subclassing `BaseAlgorithmConfig` (a plain `@dataclass`) next to it.
 3. Implement `compute_loss_and_backward(...)` — replay the stage, compute the loss, call `backward()`.
 4. Set `supports_multi_update` to match whether the loss is valid across multiple optimizer steps on one rollout shard, and `requires_ema_rollout` only for off-policy losses that need EMA sampling (NFT).
 5. Bind the class under the track's `algorithm:` node in a recipe.
@@ -47,7 +47,7 @@ See the generated [Algorithms Package README](/en/docs/architecture/readme-algor
 
 ## Adding a Reward Scorer
 
-Add the spec and scorer near the reward implementation under `unirl/reward/local/`. Prefer `LocalRewardBackend` for in-process model scorers because it provides device resolution, eager load, `offload()`, and `onload()`. Register the spec with `@register_config(group="reward/component", ...)`. For out-of-process scoring, point the reward backend at the remote service. See [Rewards](/en/docs/guides/rewards).
+Add the spec and scorer near the reward implementation under `unirl/reward/local/`. Prefer `LocalRewardBackend` for in-process model scorers because it provides device resolution, eager load, `offload()`, and `onload()`. Define the spec as a plain `@dataclass` and reference it by `_target_` under `reward.backend.config` in the recipe. For out-of-process scoring, point the reward backend at the remote service. See [Rewards](/en/docs/guides/rewards).
 
 ## Training Backends and Parallelism
 

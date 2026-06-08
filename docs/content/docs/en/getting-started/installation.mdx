@@ -3,42 +3,68 @@ title: Installation
 description: Install UniRL and the optional documentation site.
 ---
 
-UniRL requires Python 3.10 or newer. The validated training path uses editable installation with training, inference, and evaluation extras.
+UniRL requires Python `>=3.12,<3.14`. `torch` is intentionally **not** a base
+dependency: it enters through exactly one mutually-exclusive **engine extra**
+(`sglang` or `vllm`), which is what lets each engine pin its own locked CUDA
+stack. You must pick one engine extra.
 
 ## Python Package
 
-Install the core runtime:
+The recommended path is [uv](https://docs.astral.sh/uv/), which honors the
+locked per-engine CUDA indexes declared in `pyproject.toml` (`[tool.uv]`):
 
 ```bash
-pip install -e ".[train,infer,eval]" --no-build-isolation
-pip install flash-attn==2.7.4.post1 --no-build-isolation
+# SGLang rollout stack (torch 2.9.1+cu129, flash-attn-4)
+uv sync --extra sglang --extra train --extra infer --extra eval
+
+# OR the vLLM / vLLM-Omni stack (torch 2.11.0+cu129, vllm 0.20.0)
+uv sync --extra vllm --extra train --extra infer --extra eval
 ```
 
-Install development tools when you need tests, linting, and hooks:
+`sglang` and `vllm` are declared as conflicting extras, so they cannot be
+installed together — choose the one matching your rollout engine.
+
+A plain `pip` install also works if your environment already provides a
+compatible torch/CUDA build:
 
 ```bash
-pip install -e ".[train,infer,eval,dev]" --no-build-isolation
+pip install -e ".[sglang,train,infer,eval]" --no-build-isolation
+```
+
+Add `dev` for tests, linting, and hooks:
+
+```bash
+uv sync --extra sglang --extra train --extra infer --extra eval --extra dev
 pre-commit install
 ```
 
-The main project metadata lives in `pyproject.toml`. Optional extras are:
+## Optional Extras
+
+`pyproject.toml` is the dependency source of truth. Extras:
 
 | Extra | Purpose |
 |---|---|
-| `train` | WandB and async runtime dependencies |
-| `infer` | inference-side helpers such as Accelerate |
-| `eval` | evaluation and reward-related dependencies |
+| `sglang` | SGLang rollout engine + its locked torch/torchvision/torchaudio `+cu129` stack and `flash-attn-4` (Linux) |
+| `vllm` | vLLM + vLLM-Omni rollout engine + its locked torch `+cu129` stack (Linux) |
+| `train` | WandB and async runtime dependencies (`wandb`, `aiohttp`) |
+| `infer` | inference-side helpers (`accelerate`) |
+| `eval` | evaluation/reward dependencies (`torchvision`, `easyocr`) |
 | `dev` | pytest, ruff, and pre-commit |
 
-Treat `pyproject.toml` as the dependency source of truth. `setup.py` exists for older editable-install tooling, and `requirements.txt` is a flat installation helper aligned with the recommended extras path.
+`sglang` and `vllm` are mutually exclusive (`[tool.uv].conflicts`). The vLLM
+wheel often has to build from sdist on older-glibc pods; the first build is slow
+(or set `VLLM_USE_PRECOMPILED=1`) and uv caches it per pod. `setup.py` exists
+only for older editable-install tooling.
+
+> The per-engine extras already pin a matching `flash-attn` (the `sglang` extra
+> pins `flash-attn-4>=4.0.0b4`); do not separately `pip install flash-attn`
+> unless your environment needs a specific build.
 
 ## Optional Model and Reward Dependencies
 
 `mmcv` and `mmdetection` are intentionally not installed by default. Install them only for Geneval/OpenMMLab workflows, following [Geneval MMCV Setup](/en/docs/guides/geneval-mmcv-setup).
 
 To run heavy reward models on their own GPU node instead of in-process, use the standalone remote reward service in `unirl-reward-service/` (it ships its own dependencies and README). See [Rewards](/en/docs/guides/rewards) for wiring the remote backend.
-
-The optional rollout→trainer data-plane bus (TransferQueue / Mooncake) is also installed separately. See [TransferQueue Installation](/en/docs/getting-started/transfer-queue-installation).
 
 The optional rollout→trainer data-plane bus (TransferQueue / Mooncake) is also installed separately. See [TransferQueue Installation](/en/docs/getting-started/transfer-queue-installation).
 

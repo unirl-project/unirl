@@ -80,11 +80,11 @@ No native dependencies — it spawns `SimpleStorageUnit` Ray actors (defaults: `
 CLI override (the group has no default, so **append** with `+`):
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe> \
+python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
     +transfer_queue=simple
 ```
 
-Or in your recipe YAML under `recipes/<bucket>/<recipe>.yaml`:
+Or in your recipe YAML under `examples/<domain>/<recipe>.yaml`:
 
 ```yaml
 defaults:
@@ -177,7 +177,7 @@ for HA use an external `etcd` instead.
 ### 4.4 Wire the UniRL config
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe> \
+python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
     +transfer_queue=mooncake \
     transfer_queue.metadata_server=http://<head_ip>:8080/metadata \
     transfer_queue.master_server_address=<head_ip>:50051 \
@@ -257,5 +257,5 @@ no `ImportError`/`-800` and that rollout→train data flows.
 
 - UniRL integration: `unirl/distributed/tensor/backend/transfer_queue/{runtime,simple,mooncake,transport}.py`
 - Backend separation vs weight sync: `unirl/distributed/weight_sync/README.md`
-- TransferQueue upstream (canonical): <https://github.com/Ascend/TransferQueue> (developed by the Ascend team; the older <https://github.com/TransferQueue/TransferQueue> is archived). UniRL pins the internal Mooncake fork `git@git.woa.com:MMRL_Infra/TransferQueue.git` (`v0.1.5_mooncake`); upstream Mooncake install notes: `scripts/install_mooncake/README.md`
-- Mooncake: <https://github.com/kvcache-ai/Mooncake> (`v0.3.10.post1`) — [deployment guide](https://kvcache-ai.github.io/Mooncake/deployment/mooncake-store-deployment-guide.html), [error codes](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)
+- TransferQueue upstream (canonical): [https://github.com/Ascend/TransferQueue](https://github.com/Ascend/TransferQueue) (developed by the Ascend team; the older [https://github.com/TransferQueue/TransferQueue](https://github.com/TransferQueue/TransferQueue) is archived). UniRL pins the internal Mooncake fork `git@git.woa.com:MMRL_Infra/TransferQueue.git` (`v0.1.5_mooncake`); upstream Mooncake install notes: `scripts/install_mooncake/README.md`
+- Mooncake: [https://github.com/kvcache-ai/Mooncake](https://github.com/kvcache-ai/Mooncake) (`v0.3.10.post1`) — [deployment guide](https://kvcache-ai.github.io/Mooncake/deployment/mooncake-store-deployment-guide.html), [error codes](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)

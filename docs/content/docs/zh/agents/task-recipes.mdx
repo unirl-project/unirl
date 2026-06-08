@@ -10,17 +10,17 @@ description: 常见 coding-agent 任务对应的文件、检查和风险。
 Read:
 
 - `unirl/config/README.md`
-- 最接近的 `recipes/<bucket>/<recipe>.yaml`
+- 最接近的 `examples/<domain>/<recipe>.yaml`
 
 Edit:
 
-- `recipes/<bucket>/<new_recipe>.yaml`
+- `examples/<domain>/<new_recipe>.yaml`
 - 若是维护中的 recipe，同步更新 `/zh/docs/configuration/experiments` 和英文对应页
 
 Check:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<new_recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<domain>/<new_recipe> --cfg job --resolve
 ```
 
 Risk: placement、rollout batch size、train-stack batch geometry 不匹配。
@@ -37,7 +37,7 @@ Read:
 Edit:
 
 - `unirl/models/<model_name>/`
-- `recipes/<bucket>/<recipe>.yaml`
+- `examples/<domain>/<recipe>.yaml`
 
 Check:
 
@@ -61,7 +61,7 @@ Edit:
 
 - `unirl/rollout/engine/<engine>/`
 - dedicated engine 需要时同步 weight sync backend
-- 至少一个 `recipes/<bucket>/` 下的 recipe
+- 至少一个 `examples/<domain>/` 下的 recipe
 
 Check:
 
@@ -83,7 +83,7 @@ Read:
 Edit:
 
 - `unirl/distributed/weight_sync/`
-- 选择或调优 backend 时更新 `recipes/<bucket>/<recipe>.yaml`
+- 选择或调优 backend 时更新 `examples/<domain>/<recipe>.yaml`
 
 Check:
 
@@ -146,13 +146,13 @@ See also: `unirl/reward/local/base.py`、`unirl/types/reward.py`。
 先运行：
 
 ```bash
-python -m unirl.train_diffusion --config-name=<bucket>/<recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve
 ```
 
 然后按顺序看：
 
 - config validation error；
-- `scripts/` 下的启动器；
+- `examples/` 下的启动器；
 - `unirl/rollout/README.md`；
 - `unirl/train/readme.md`。
 

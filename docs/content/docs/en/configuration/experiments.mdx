@@ -1,9 +1,9 @@
 ---
 title: Experiment Recipes
-description: Recipes in the bucketed recipes/ tree and how to select one per entrypoint.
+description: Recipes in the bucketed examples/ tree and how to select one per entrypoint.
 ---
 
-Recipes are self-contained YAML files under `recipes/`, bucketed by trainer domain (`diffusion_rl/`, `vlm_rl/`, `llm_rl/`, `pe_rl/`, `unified_model_rl/`). Each one is the source of truth for model, algorithm, rollout engine, placement, reward, sync, and batch geometry. Select a recipe with `--config-name=<bucket>/<recipe>` (no `.yaml`).
+Recipes are self-contained YAML files under `examples/`, bucketed by trainer domain (`diffusion/`, `vlm/`, `llm/`, `pe/`, `unified_model/`). Each one is the source of truth for model, algorithm, rollout engine, placement, reward, sync, and batch geometry. Select a recipe with `--config-name=<domain>/<recipe>` (no `.yaml`).
 
 ## Entrypoint per Domain
 
@@ -11,16 +11,16 @@ The recipe family determines which entrypoint runs it:
 
 | Entrypoint | Bucket | Recipe families |
 |---|---|---|
-| `python -m unirl.train_diffusion` | `diffusion_rl/` | `sd3_*`, `qwen_image_*`, `flux2_klein_*`, `wan21_*`, `wan22_*`, `hunyuan_video*` |
-| `python -m unirl.train_vlm` | `vlm_rl/`, `llm_rl/` | `argrpo_qwen_vl_*`, `ar_drpo_qwen3_*` |
-| `python -m unirl.train_pe` | `pe_rl/` | `pe_*` |
-| `python -m unirl.train_unified_model` | `unified_model_rl/` | `hi3_*` |
+| `python -m unirl.train_diffusion` | `diffusion/` | `sd3_*`, `qwen_image_*`, `flux2_klein_*`, `wan21_*`, `wan22_*`, `hunyuan_video*` |
+| `python -m unirl.train_vlm` | `vlm/`, `llm/` | `qwen_vl_argrpo_*`, `qwen3_ar_drpo_*` |
+| `python -m unirl.train_pe` | `pe/` | `pe_*` |
+| `python -m unirl.train_unified_model` | `unified_model/` | `hi3_*` |
 
 ## Maintained Families
 
 | Family | Recipes |
 |---|---|
-| SD3 (trainside / GRPO) | `sd3_trainside`, `sd3_dancegrpo`, `sd3_mixgrpo` |
+| SD3 (GRPO) | `sd3_trainside`, `sd3_trainside_tq_mooncake`, `sd3_dancegrpo`, `sd3_mixgrpo` |
 | SD3 NFT | `sd3_nft`, `sd3_nft_reward_service`, `sd3_nft_sglang` |
 | SD3 Flow-DPPO | `sd3_flowdppo`, `sd3_flowdppo_vllmomni` |
 | SD3 SGLang | `sd3_sglang_native_colocate`, `sd3_sglang_replay_colocate`, `sd3_sglang_full_nccl_separate`, `sd3_sglang_full_tensor`, `sd3_sglang_lora_separate` |
@@ -31,22 +31,22 @@ The recipe family determines which entrypoint runs it:
 | WAN 2.2 | `wan22_t2v_14b`, `wan22_t2v_14b_dancegrpo`, `wan22_t2v_14b_mixgrpo`, `wan22_i2v` |
 | HunyuanVideo | `hunyuan_video_t2v_trainside`, `hunyuan_video15_t2v_dancegrpo_trainside`, `hunyuan_video15_t2v_vllmomni_nccl_separate` |
 | HunyuanImage3 | `hi3_vllmomni` |
-| Qwen-VL ARGRPO (VLM) | `argrpo_qwen_vl_geo3k_mc_4x8`, `argrpo_qwen_vl_geo3k_mc_4x8_lora`, `argrpo_qwen_vl_geo3k_mc_sglang_4x8`, `argrpo_qwen_vl_geo3k_mc_sglang_4x8_lora` |
-| Qwen3 DRPO (LLM) | `ar_drpo_qwen3_4b_base_dpao_sglang` |
+| Qwen-VL ARGRPO (VLM) | `qwen_vl_argrpo_geo3k_mc_4x8`, `qwen_vl_argrpo_geo3k_mc_4x8_lora`, `qwen_vl_argrpo_geo3k_mc_sglang_4x8`, `qwen_vl_argrpo_geo3k_mc_sglang_4x8_lora` |
+| Qwen3 DRPO (LLM) | `qwen3_ar_drpo_4b_base_dpao_sglang` |
 | PE (prompt enhancer, AR + diffusion) | `pe_trainside_pickscore`, `pe_sglang_full_pickscore`, `pe_sglang_full_wise`, `pe_sglang_lora_pickscore` |
 
 ## Selecting a Recipe
 
 ```bash
-python -m unirl.train_diffusion --config-name=diffusion_rl/sd3_trainside
+python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside
 ```
 
 Launchers pass the same bucketed recipe name (and `ENTRY` selects a non-diffusion entrypoint):
 
 ```bash
-bash scripts/run_experiment_single_node.sh diffusion_rl/sd3_trainside
-ENTRY=train_vlm bash scripts/run_experiment_single_node.sh vlm_rl/argrpo_qwen_vl_geo3k_mc_4x8
-bash scripts/run_experiment_multinode_taiji.sh diffusion_rl/sd3_sglang_native_colocate
+bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+ENTRY=train_vlm bash examples/run_experiment_single_node.sh vlm/qwen_vl_argrpo_geo3k_mc_4x8
+bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate
 ```
 
 ## How to Pick a Recipe
@@ -63,8 +63,8 @@ Use this decision order when a task does not name a specific recipe:
 
 When adding a recipe:
 
-1. Start from the closest existing `recipes/<bucket>/<recipe>.yaml`.
+1. Start from the closest existing `examples/<domain>/<recipe>.yaml`.
 2. Keep model, reward, rollout engine, backend, stack, sync, placement, and batch geometry in YAML, each instantiated by `_target_`.
 3. Use environment interpolation only for deployment-specific paths and logging identity.
-4. Run `python -m unirl.train_diffusion --config-name=<bucket>/<recipe> --cfg job --resolve`.
+4. Run `python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve`.
 5. Add the recipe to this page.
