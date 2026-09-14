@@ -6,7 +6,7 @@
     "sync:readmes": "node scripts/sync-readme-reference.mjs",
     "generate:docs": "npm run sync:readmes && fumadocs-mdx",
     "check:content": "node scripts/check-docs.mjs",
-    "docs:check": "npm run sync:readmes && npm run check:content",
+    "docs:check": "npm run generate:docs && npm run check:content",
     "clean:next-types": "node -e \"const fs = require('node:fs'); fs.rmSync('.next/types', { recursive: true, force: true }); fs.rmSync('.next/dev/types', { recursive: true, force: true });\"",
     "typegen": "next typegen",
     "prepare:typecheck": "npm run sync:readmes && npm run clean:next-types && npm run typegen",
