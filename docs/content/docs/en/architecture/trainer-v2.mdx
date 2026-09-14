@@ -11,7 +11,8 @@ everything below is the current, default path.
 ## Entrypoints and trainers
 
 Each domain has its own Hydra entrypoint and `<Domain>Trainer`
-(`unirl/trainer/`), all driven the same way:
+(`unirl/trainer/`). They share construction utilities and train-side contracts,
+but their lifecycles and placement layouts differ:
 
 | Entrypoint | Trainer | Domain |
 |---|---|---|
@@ -24,14 +25,41 @@ Each domain has its own Hydra entrypoint and `<Domain>Trainer`
 | `python -m unirl.train_unified_model` | `trainer/unified_model.py` | HunyuanImage3 (mixed AR + diffusion) |
 | `python -m unirl.train_agentic` | `trainer/agentic.py` | Service-scored agentic tool use |
 
-The shared lifecycle lives in `trainer/base.py`: acquire a Ray `DevicePool`,
-build the rollout and train workers inside a placement block, then run the
-rollout → reward → advantage → train → optional weight-sync loop.
+`trainer/base.py` owns shared facilities such as the Ray `DevicePool`,
+checkpointing, logging, and transport cleanup. Each concrete trainer owns its
+workers, placement blocks, and phase ordering.
 
-## Runtime model
+## Lifecycles and placement
 
-The trainer opens one placement block and instantiates each component as a
-sibling `Remote`, passing siblings by handle:
+- **Synchronous AR** uses one full-pool placement. Direct rollout shares the
+  train pipeline; a dedicated colocated engine adds weight sync and phase
+  offload/onload.
+- **Synchronous diffusion** supports either a colocated placement or distinct
+  train and rollout placements selected by `layout`; `reward_fraction > 0`
+  creates a third reward placement.
+- **SFT** uses one placement for bundle, pipeline, backend, supervised
+  algorithm, stack, and track builder. Its lifecycle is
+  `records → build Part → train_track`: there is no rollout, reward, advantage,
+  or weight sync.
+- **Async AR and async diffusion** use exactly two disjoint placement slabs:
+  train (including reward, algorithm, stack, and sync sender) and a resident
+  dedicated rollout engine. Their manager buffers completed `Sample`s and
+  publishes versioned weights at explicit barriers.
+- **PE** uses one placement containing AR and diffusion sides. Each trainable
+  side has its own bundle, pipeline, backend, algorithm, and `TrainStack`; with
+  `freeze_llm`, the AR side is rollout-only. A composed rollout generates the
+  ordered AR and diffusion Parts, then reward propagation and per-Part
+  advantages precede sibling stack updates.
+- **Unified model** uses one shared bundle/backend and
+  `UnifiedModelTrainStack` for AR + image losses on one backbone. Its rollout
+  may be one engine or an AR/DiT engine pair; it is not PE's sibling-stack
+  topology.
+- **Agentic** uses one colocated placement and requires a dedicated engine plus
+  `TensorWeightSync`. It runs a barrier batch through `RolloutManager`, scores
+  terminal answers, assigns one group advantage to every generated assistant
+  Part, and concatenates those Parts for training.
+
+A common single-stage colocated RL wiring looks like this:
 
 ```text
 <Domain>Trainer(num_devices, batch_size, ...cfg blocks...)
@@ -49,8 +77,9 @@ sibling `Remote`, passing siblings by handle:
 The single-controller layer (`unirl/distributed/group/`: `Remote`, `placement`,
 `RankInfo`) carries `DP / TP / PP / SP / EP` rank information, which is what
 later parallelism work (SP for long sequences, EP for MoE) plugs into.
-`trainside` recipes share the trained module (no `sync`); dedicated engines add
-a weight-sync bridge under `sync`.
+This sketch does not describe SFT, two-slab async trainers, PE, unified-model,
+or reward-slab diffusion. `trainside` recipes share the trained module (no
+`sync`); dedicated engines add a weight-sync bridge under `sync`.
 
 ## FSDP backend and train stack
 
@@ -60,14 +89,15 @@ Two `Remote` siblings split the training work:
   structural injection (LoRA / NFT / mirror EMA) before the FSDP2 wrap, plus the
   optimizer, LR scheduler, EMA shadow, eval-EMA swap, checkpoint, and
   onload/offload.
-- **`TrainStack`** (`unirl/train/stack.py`) owns loss/backward sequencing. It
+- **`TrainStack`** is implemented in `unirl/train/stack/base.py` and exported
+  by `unirl.train.stack`. It owns loss/backward sequencing and
   takes handles to one `FSDPBackend` and one `StageAlgorithm`, and per rollout
-  track runs `prepare_segment → mini-batch compute_loss_and_backward loop →
+  Part runs `prepare_segment → mini-batch compute_loss_and_backward loop →
   optimizer_step`, returning a `TrainStepResult`.
 
-`TrainStack` is single-stage by design — one track, no track-name dict.
-**Multi-track training (for example PE) uses sibling `TrainStack`s**, one per
-track. HunyuanImage3's mixed AR + diffusion training uses `unified_model_stack.py`, a
+`TrainStack` is single-stage by design — one Part, no part-name dict.
+**PE uses sibling `TrainStack`s**, one per trainable generated Part.
+HunyuanImage3's mixed AR + diffusion training uses `unified_model_stack.py`, a
 multi-stage variant.
 
 `num_updates_per_batch > 1` runs several PPO mini-batch updates on one rollout
@@ -87,6 +117,16 @@ subdirectories where needed (for example
 `_target_` (no Hydra config-group overrides):
 
 ```yaml
+bundle:
+  _target_: unirl.models.sd3.bundle.SD3Bundle.from_config
+  config:
+    _target_: unirl.models.sd3.config.SD3PipelineConfig
+    pretrained_model_ckpt_path: ${oc.env:PRETRAINED_MODEL}
+
+pipeline:
+  _target_: unirl.models.sd3.pipeline.SD3Pipeline
+  shift: 3.0
+
 backend:
   _target_: unirl.train.backend.fsdp.FSDPBackend
   block_class_names: ["JointTransformerBlock"]

@@ -15,22 +15,27 @@ See [Rewards](/en/docs/guides/rewards) for configuration and the generated
 
 ## Periodic Evaluation
 
-Periodic evaluation is implemented for diffusion, AR, and SFT trainers. Set
-`eval_interval` above zero in the recipe; `0` disables it.
+Set `eval_interval` above zero to enable a trainer's periodic path; `0`
+disables it. The implementations are not interchangeable:
 
-- `data_source.args.run.eval_data_path` selects a deterministic, unshuffled eval
-  source. Recipes commonly interpolate `EVAL_DATA_PATH`.
-- Diffusion/AR use `eval_num_prompts` and evaluation-specific sampling knobs.
-  Diffusion also supports chunking and `eval_rewards`, a list of extra reward
-  suites that may share the default eval set or specify their own.
-- SFT uses `eval_batch_size` and `eval_num_samples`; `-1` evaluates the complete
-  eval set.
-- Evaluation runs at step/rollout zero and at the configured cadence where the
-  trainer supports it. Async trainers drain to a synchronized empty-rollout
-  boundary before evaluating.
+| Trainer | Current evaluation behavior |
+|---|---|
+| Diffusion | Generates from `eval_data_path`, scores with the configured reward, and logs mean reward. Supports `eval_num_prompts`, `eval_samples_per_prompt`, `eval_chunk_prompts`, evaluation sampling overrides/`eval_eta`, and `eval_rewards` suites with shared or separate eval data. A reward block is required when eval is enabled. |
+| AR | Runs batched generation and reward scoring, reporting `avg@k`-style accuracy/reward. Uses `eval_num_prompts`, `eval_batch_size`, `eval_samples_per_prompt`, and `eval_temperature`. It does not use the diffusion `eval_rewards` suite mechanism. |
+| SFT | Performs validation forward passes and logs weighted `eval/loss`; it does not generate rollouts or call a reward model. Uses `eval_batch_size` and `eval_num_samples`; `-1` means the complete eval set. |
+| PE | Evaluates the composed AR→diffusion rollout and image reward. Supports `eval_num_prompts`, diffusion `eval_cfg_text_scale`/`eval_eta`, and optional `eval_rewards` suites. |
+| Unified model | Evaluates the unified AR+diffusion generation path and image reward. Supports `eval_num_prompts`, `eval_cfg_text_scale`/`eval_eta`, and optional `eval_rewards` suites. |
+| Async AR / async diffusion | Reuse the corresponding AR/diffusion evaluator, but first stop launching work, drain in-flight rollouts, and synchronize at an empty `RolloutManager` hard boundary. They do not evaluate arbitrary stale in-flight state. |
 
-Use the selected recipe as the exact source of truth because available knobs
-differ by trainer.
+For `MultimodalRLDataSource`,
+`data_source.args.run.eval_data_path` selects a deterministic, unshuffled eval
+source and falls back to `data_path` when omitted. Recipes commonly interpolate
+`EVAL_DATA_PATH`. SFT uses its SFT data source's validation iterator instead.
+
+The listed trainers run an initial evaluation when enabled and then at the
+configured cadence. The agentic trainer is not covered by this periodic-eval
+contract. Use the selected recipe and trainer constructor as the exact source
+of truth for available fields.
 
 ## Offline / External Benchmarks
 

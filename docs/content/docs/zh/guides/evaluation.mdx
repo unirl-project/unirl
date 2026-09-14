@@ -14,18 +14,24 @@ VideoPickScore，以及基于规则的匹配器。
 
 ## 周期评测
 
-diffusion、AR 和 SFT trainer 已实现周期评测。recipe 中 `eval_interval>0` 时启用，
-设为 `0` 时关闭。
+`eval_interval>0` 时启用 trainer 的周期评测路径，设为 `0` 时关闭。各实现并不等价：
 
-- `data_source.args.run.eval_data_path` 选择确定性、不 shuffle 的 eval 数据源；recipe
-  通常从 `EVAL_DATA_PATH` 插值。
-- Diffusion/AR 使用 `eval_num_prompts` 及各自的 eval sampling 参数。Diffusion 还支持
-  chunking 和 `eval_rewards`：额外 reward suite 可共享默认 eval set，也可配置自己的数据集。
-- SFT 使用 `eval_batch_size` 与 `eval_num_samples`；`-1` 表示完整 eval set。
-- 支持的 trainer 会在 step/rollout 0 和配置的 cadence 运行评测。Async trainer 会先 drain
-  到已同步且没有在途 rollout 的边界，再执行评测。
+| Trainer | 当前评测行为 |
+|---|---|
+| Diffusion | 从 `eval_data_path` 生成样本，用已配置 reward 打分并记录均值。支持 `eval_num_prompts`、`eval_samples_per_prompt`、`eval_chunk_prompts`、eval sampling override/`eval_eta`，以及共享或单独 eval 数据的 `eval_rewards` suite。启用 eval 时必须有 reward block。 |
+| AR | 分 batch 生成并做 reward scoring，记录 `avg@k` 风格的 accuracy/reward。使用 `eval_num_prompts`、`eval_batch_size`、`eval_samples_per_prompt` 与 `eval_temperature`，不使用 diffusion 的 `eval_rewards` suite 机制。 |
+| SFT | 做 validation forward 并记录加权 `eval/loss`；不生成 rollout，也不调用 reward model。使用 `eval_batch_size` 与 `eval_num_samples`，`-1` 表示完整 eval set。 |
+| PE | 评测组合的 AR→diffusion rollout 与图像 reward。支持 `eval_num_prompts`、diffusion 的 `eval_cfg_text_scale`/`eval_eta`，以及可选 `eval_rewards` suite。 |
+| Unified model | 评测统一 AR+diffusion 生成路径与图像 reward。支持 `eval_num_prompts`、`eval_cfg_text_scale`/`eval_eta`，以及可选 `eval_rewards` suite。 |
+| Async AR / async diffusion | 复用对应 AR/diffusion evaluator，但会先停止补充任务、drain 在途 rollout，并在空 `RolloutManager` 的 hard boundary 完成同步；不会直接评测任意 stale 的在途状态。 |
 
-各 trainer 的可用字段不同，精确配置以所选 recipe 为准。
+对于 `MultimodalRLDataSource`，
+`data_source.args.run.eval_data_path` 选择确定性、不 shuffle 的 eval 数据源；省略时回退到
+`data_path`。recipe 通常从 `EVAL_DATA_PATH` 插值。SFT 则使用其 SFT data source 的
+validation iterator。
+
+上述 trainer 启用后会先做一次初始评测，再按配置 cadence 执行。agentic trainer 不属于
+这份周期评测契约。精确字段以所选 recipe 和 trainer 构造函数为准。
 
 ## 离线 / 外部 Benchmark
 

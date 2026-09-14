@@ -1,6 +1,6 @@
 ---
 title: Hydra 配置
-description: UniRL 如何组合、验证和覆盖运行时配置。
+description: UniRL 如何组合、实例化和覆盖运行时配置。
 ---
 
 UniRL 使用 Hydra。recipe 是 `examples/` 下的自包含 YAML 文件，按 `diffusion/`、
@@ -27,11 +27,19 @@ CLI Hydra override > launcher env var > YAML default
 
 ## 运行时契约
 
-Ray worker 创建前会运行 cross-component validators。实现细节和 validator 清单见生成的 [Config Package README](/zh/docs/configuration/readme-config-package)。
+`--cfg job --resolve` 只会让 Hydra 组合所选 YAML，并解析 override 与
+`${oc.env:...}` 等插值。它**不会**实例化 recipe、检查文件路径、运行 dataclass
+`__post_init__`，也不能证明跨组件与 batch geometry 兼容。
+
+组件 config dataclass 的校验要等 owning driver/actor 构造并实例化组件时才会运行。
+`unirl/config/validation.py` 中的 `validate_*` 跨组件 helper 当前没有 live call site，
+因此不能把它们视为 Ray 启动前的校验阶段。trainer 构造函数和 worker 启动路径还有其它
+实际生效的检查，但必须进入真实运行时构造路径才会触发。可用 config 类型及预期契约见
+生成的 [Config Package README](/zh/docs/configuration/readme-config-package)。
 
 `sync` 和 tensor transport 解决不同问题：`sync`（`cfg.sync`）把 trainer 权重同步回 dedicated rollout engine，tensor transport（`unirl/distributed/tensor/`）是把大型 rollout 输出在 worker 间搬运的数据通道。
 
-大作业前先运行：
+大作业前先运行以下命令，但只把它视为 Hydra 组合/环境变量解析检查：
 
 ```bash
 python -m unirl.train_diffusion \

@@ -20,23 +20,29 @@ uv venv --python 3.12 --seed .venv
 source .venv/bin/activate
 uv pip install -e ".[vllm,train,infer]" --prerelease=allow
 
-# SGLang: use a different environment
+# SGLang, step 1: create and activate a different environment
 deactivate
 uv venv --python 3.12 --seed .venv-sglang
 source .venv-sglang/bin/activate
-uv pip install -e ".[sglang,train,infer]" --prerelease=allow
 ```
 
 The SGLang stack reaches `causal-conv1d`, which compiles a CUDA extension. A
 CUDA 12 `nvcc` on `PATH` cannot compile against the CUDA 13 PyTorch runtime.
-Install the CUDA 13 compiler wheels first and point `CUDA_HOME` at them:
+After activating `.venv-sglang`, install the CUDA 13 compiler wheels, configure
+the build environment, and only then install UniRL with the SGLang extras:
 
 ```bash
+# SGLang, step 2: install the CUDA 13 compiler toolchain
 uv pip install "nvidia-cuda-nvcc==13.0.*" "nvidia-cuda-crt==13.0.*" \
   "nvidia-nvvm==13.0.*" "nvidia-cuda-cccl==13.0.*" "nvidia-cuda-runtime==13.0.*"
+
+# SGLang, step 3: select that toolchain and bound parallel compilation
 export CUDA_HOME="$VIRTUAL_ENV/lib/python3.12/site-packages/nvidia/cu13"
 export PATH="$CUDA_HOME/bin:$PATH"
 export MAX_JOBS=4
+
+# SGLang, step 4: install UniRL and the engine stack
+uv pip install -e ".[sglang,train,infer]" --prerelease=allow
 ```
 
 On driver-535 hosts, make NVIDIA's `cuda-compat-13-0` forward-compat libraries

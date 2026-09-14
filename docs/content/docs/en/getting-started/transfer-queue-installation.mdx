@@ -61,7 +61,7 @@ TQ's runtime deps are mostly already in UniRL (`ray[default]`, `hydra-core`, `nu
 `torch`). Install the few it doesn't already provide — mind the **`numpy<2.0.0`** ceiling:
 
 ```bash
-pip install "tensordict>=0.10.0" pyzmq msgspec psutil
+pip install "numpy<2.0.0" "tensordict>=0.10.0" pyzmq msgspec psutil
 ```
 
 ### Verify
@@ -142,9 +142,16 @@ ls /sys/class/infiniband           # UniRL auto-discovers device_name from here
 UniRL auto-discovers `device_name` (a comma-list of RDMA bonds from
 `/sys/class/infiniband`) and sets `MC_ENABLE_DEST_DEVICE_AFFINITY=1` so each process binds the
 PIX-distance HCA for its GPU — **you normally do not set `device_name`**. Override only for ops
-debugging: `transfer_queue.device_name=mlx5_0`. No RDMA fabric? Fall back with
-`transfer_queue.protocol=tcp` (slower). If startup raises *"no InfiniBand device found under
-/sys/class/infiniband"*, the host has no usable RDMA NIC.
+debugging: `transfer_queue.device_name=mlx5_0`.
+
+`protocol: tcp` is accepted by `MooncakeBackendConfig`, but it is **not** a
+no-RDMA-host fallback in the current UniRL runtime. Mooncake client creation
+unconditionally probes `/sys/class/infiniband` and fills `device_name` before
+initializing the storage manager, regardless of `protocol`. Therefore, setting
+only `transfer_queue.protocol=tcp` on a host without an HCA still raises
+*"no InfiniBand device found"*. Use `SimpleBackend` for functional testing on
+such hosts; validate Mooncake only on an RDMA-capable host until the runtime
+gates HCA discovery by protocol.
 
 ### 4.3 Run the external Mooncake services (head node)
 
@@ -248,7 +255,7 @@ no `ImportError`/`-800` and that rollout→train data flows.
 |---|---|
 | `ImportError: Mooncake Store not installed` | Install the engine (§4.1) into the **same** venv. |
 | Dependency resolver pulls `numpy>=2` | TQ requires `numpy<2.0.0`; pin it. |
-| `no InfiniBand device found under /sys/class/infiniband` | No usable RDMA NIC — run on an RDMA host or set `transfer_queue.protocol=tcp`. |
+| `no InfiniBand device found under /sys/class/infiniband` | Current Mooncake client setup requires HCA discovery even with `protocol=tcp`; run it on an RDMA host or use `SimpleBackend`. |
 | Mooncake `setup()` returns `-800` on some ranks | Wrong-NUMA HCA. Ensure `MC_ENABLE_DEST_DEVICE_AFFINITY=1` (UniRL sets it) and a comma-list `device_name`; pin with `transfer_queue.device_name=` if needed. See Mooncake [error codes](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html). |
 | Client cannot reach master/metadata (timeout / refused) | `mooncake_master` not running or wrong host/port; ensure `50051`/`50041` (or your overrides) are reachable across nodes; set `LOCAL_IP` so clients bind the routable interface. |
 | `*.so` not found at runtime (source build) | `LD_LIBRARY_PATH` must include `/usr/local/lib64:/usr/local/lib`; `source ~/.bashrc`. |

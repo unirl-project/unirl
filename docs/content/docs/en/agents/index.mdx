@@ -21,7 +21,7 @@ Do not add `/llms.txt` as a docs category. It is a root-level access path for to
 - Use the training-domain entrypoint that owns the recipe: `train_diffusion`,
   `train_ar`, `train_sft`, `train_async_diffusion`, `train_async_ar`,
   `train_pe`, `train_unified_model`, or `train_agentic`.
-- Treat the bucketed `examples/<domain>/<recipe>.yaml` files as the authoritative configuration surface.
+- Treat `examples/<path-under-examples>.yaml` files as the authoritative configuration surface; paths may include model subdirectories.
 - Treat package READMEs as local contracts near the code they describe.
 - Do not infer runtime behavior from stale scratch docs or ignored local files unless the user explicitly points to them.
 

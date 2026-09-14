@@ -6,34 +6,47 @@ description: UniRL 文档与 recipe 中通用的核心心智模型与领域术�
 如果文档其余部分出现你不熟悉的术语，请先读本页。它是概念入门，不是 API 参考；贴近代码的契约见嵌入在各分区下的 package 页面，例如
 [Code Architecture](/zh/docs/architecture/readme-code-architecture)。
 
-## 核心循环
+## 生命周期
 
-每次训练都是一个重复循环：
+RL、监督训练和异步训练并不共享同一个生命周期：
 
 ```text
-prompts -> rollout（采样 media + 把 trajectory 记入 tracks）
+同步 RL：
+prompts -> rollout（填充 Sample 中生成的 Part）
         -> reward （把 media 打分为逐样本 reward）
         -> advantage（在组内/跨组归一化 reward）
         -> train  （replay trajectory，算 loss，backward，optimizer step）
         -> [可选] weight sync 回 dedicated rollout engine
+
+SFT：
+records -> 构建监督 Part -> train
+
+异步 AR / diffusion：
+独立 rollout slab -> buffered Sample -> reward/advantage -> 独立 train slab
+                  <- 带版本的权重发布 <-
 ```
 
-## 每 track 一个算法
+SFT 没有 rollout、reward、advantage 或 weight-sync 阶段。异步 AR 和 diffusion
+在两个独立 placement slab 上重叠工作，同时保留权重发布和 checkpoint barrier。
 
-一次 rollout 产出一个或多个 **track**（`RolloutResp.tracks[name]`，以 stage 名为 key，如
-`"diffusion"` 或 `"ar"`）。每个 track 绑定**恰好一个** loss 算法——`cfg.algorithm`，
-一个 `StageAlgorithm`：它消费该 track、replay stage、算 loss 并 `backward()`。
+## 每个生成 Part 一个算法
+
+rollout engine 把 request `Sample` 转换为填充后的 `Sample`。`Sample.parts` 是有序的
+`Part` lineage；生成 Part 携带对应 stage 的 segment、conditions、primitives、rewards
+和 advantages。每个可训练的生成 Part 绑定一个 loss 算法，即 replay stage、计算 loss
+并调用 `backward()` 的 `StageAlgorithm`。
 
 不存在独立的 driver 侧 "rollout control" 对象。reward→advantage 的整形与 SDE-index 选择都在 typed 对象上：
 
 | 关注点 | 所在位置 |
 |---|---|
-| Loss | `cfg.algorithm` → 一个 `StageAlgorithm`（如 `DiffusionGRPO`） |
-| reward → advantage | `RolloutTrack.compute_advantages`（`unirl/types/rollout_resp.py`） |
+| Loss | `cfg.algorithm` → 一个 `StageAlgorithm`（如 diffusion `FlowGRPO` 或 AR `GRPO`） |
+| reward → advantage | `Part.compute_advantages`（`unirl/types/sample.py`） |
 | 哪些推理步跑 SDE | `DiffusionSamplingParams.resolve_sde_indices`（`unirl/types/sampling.py`） |
 
-单 track recipe 绑定一个顶层 `cfg.algorithm`；多 track recipe（如 PE）为每个 track 嵌套一个
+单 stage recipe 绑定一个顶层 `cfg.algorithm`。PE 为每个生成 Part 嵌套一个
 `algorithm:` 节点（`diffusion.algorithm`、`ar.algorithm`），并运行兄弟 `TrainStack`。
+unified-model 训练则为 shared AR + image backbone 使用一个 `UnifiedModelTrainStack`。
 
 ## 术语表
 
@@ -42,8 +55,8 @@ prompts -> rollout（采样 media + 把 trajectory 记入 tracks）
 | 术语 | 含义 |
 |---|---|
 | Driver | 跑训练循环的进程：一个入口（`unirl.train_diffusion` 等）构建 `<Domain>Trainer`。 |
-| Trainer | `unirl/trainer/<domain>.py`——负责 placement 块、构建 rollout/train worker 并跑循环。 |
-| Remote / placement | single-controller 层（`unirl/distributed/group/`）：`Remote` 是逻辑 worker；`placement` 块把 sibling Remote colocate，并携带 `RankInfo`（DP/TP/PP/SP/EP rank）。 |
+| Trainer | `unirl/trainer/<domain>.py`——负责该领域的 placement 块、worker 和生命周期。 |
+| Remote / placement | single-controller 层（`unirl/distributed/group/`）：`Remote` 是逻辑 worker；一个 `placement` 块把 sibling Remote 分配到同一 GPU slab，并携带 `RankInfo`（DP/TP/PP/SP/EP rank）。 |
 | Bundle | 一个模型包暴露给训练和 rollout 的可训练+冻结模块（transformer、VAE、text encoder）。 |
 | Pipeline | 模型的采样 pipeline（去噪/生成），用于产出 media 和 trajectory。 |
 
@@ -55,8 +68,8 @@ prompts -> rollout（采样 media + 把 trajectory 记入 tracks）
 | Direct sampling | `trainside`：被 FSDP wrap 的训练模块本身就是 sampler；无独立 engine、无 weight sync。 |
 | Dedicated sampling | 独立 engine（SGLang / vLLM-Omni）持有自己的权重，需要 trainer→rollout weight sync。 |
 | Colocate vs separate | train 与 rollout 是否共享 GPU bundle（`colocate`）或跑在不同 GPU slab（`separate`）。 |
-| `RolloutReq` / `RolloutResp` | rollout 与 training 的 typed 边界。engine 把 backend 输出转换为 `RolloutResp`。 |
-| Track / Segment | `RolloutResp.tracks[name]` 持有每 stage 的 `segment`（如带逐步 log-prob 的 diffusion trajectory）、rewards 和 advantages。 |
+| `Sample` | rollout 与 training 的 typed 边界。每个 engine 都接收并返回 `Sample`；见 `unirl/types/sample.py`。 |
+| Part / Segment | `Sample.parts` 是有序 lineage。每个 `Part` 可持有 stage `segment`（如带逐步 log-prob 的 diffusion trajectory）、conditions、primitives、rewards 和 advantages。 |
 | Group | 一条 prompt 的 `sampling.samples_per_prompt` 个同组样本；advantage 在组内归一化。 |
 
 ### SDE 与 log-prob
@@ -64,7 +77,7 @@ prompts -> rollout（采样 media + 把 trajectory 记入 tracks）
 | 术语 | 含义 |
 |---|---|
 | SDE strategy | 产生逐步 log-prob 的随机 kernel（`FlowSDEStrategy`、`DanceSDEStrategy` ...）。 |
-| Sigma schedule | 各去噪步的 σ 值；作为 single source of truth 钉在 request 上。 |
+| Sigma schedule | 各去噪步的 σ 值；作为 single source of truth 钉在生成 Part 的 sampling params 上。 |
 | `old_logp` / `new_logp` | rollout 时 vs 当前权重的 log-prob；其比值驱动 GRPO 的 clipped 目标。 |
 | Log-prob replay | 训练时通过 replay stage 重算 log-prob；多次更新间 old log-prob 保持固定。 |
 
@@ -74,7 +87,7 @@ prompts -> rollout（采样 media + 把 trajectory 记入 tracks）
 |---|---|
 | Backend | training-state `Remote`（`FSDPBackend`），负责结构注入 + optimizer + scheduler + EMA。 |
 | Stage / StageAlgorithm | 可训练 stage，以及 replay 它并做 forward/backward 的 loss 对象。 |
-| Train stack | `TrainStack`——单 stage 的 loss/backward 驱动；多 track 用兄弟 stack；HI3 用 `unified_model_stack`。 |
+| Train stack | `TrainStack`——实现在 `unirl/train/stack/base.py`，并由 `unirl.train.stack` 导出；PE 使用兄弟 stack，HI3 使用 `unified_model_stack`。 |
 | EMA rollout | 用 EMA 平滑权重采样 rollout（NFT 开启；GRPO / DPPO 不可）。 |
 | Batch geometry | `micro_batch_size`、`num_updates_per_batch`；多更新会在每个 rollout shard 上冻结一次 π_old。 |
 

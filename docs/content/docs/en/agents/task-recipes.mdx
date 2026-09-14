@@ -20,12 +20,18 @@ Edit:
 Check:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
+python -m unirl.train_<owner> --config-name=<path-under-examples> --cfg job --resolve
 ```
 
-Risk: mismatched placement, rollout batch size, and train-stack batch geometry.
+Choose `<owner>` from the recipe's entrypoint (`diffusion`, `ar`, `sft`,
+`async_diffusion`, `async_ar`, `pe`, `unified_model`, or `agentic`), and make
+`<path-under-examples>` the extensionless path below `examples/`.
 
-See also: `unirl/train/stack.py`, `unirl/config/`.
+Risk: applying rollout or placement assumptions from one trainer lifecycle to
+another, or mismatching batch geometry.
+
+See also: `unirl/train/stack/base.py` (exported by `unirl.train.stack`),
+`unirl/config/`.
 
 ## Add a New Model
 
@@ -37,11 +43,13 @@ Read:
 Edit:
 
 - `unirl/models/<model_name>/`
-- `examples/<domain>/<recipe>.yaml`
+- `examples/<path-under-examples>.yaml`
+- recipe `bundle:` and `pipeline:` blocks that construct the model package
 
 Check:
 
-- config registration imports
+- `bundle._target_` constructs the model modules and `pipeline._target_` consumes
+  that shared bundle
 - LoRA target materialization
 - prompt/condition contracts expected by rollout engines
 
@@ -65,12 +73,13 @@ Edit:
 
 Check:
 
-- all backend outputs adapt to canonical `RolloutResp` (`tracks[name]`)
+- the engine contract is `generate(sample: Sample) -> Sample`
+- backend outputs fill the appropriate generated `Part` in `Sample.parts`
 - direct-vs-dedicated sync contracts pass validation
 
 Risk: returning backend-specific objects across the rollout/training boundary.
 
-See also: `unirl/types/rollout_req.py`, `unirl/types/rollout_resp.py`.
+See also: `unirl/types/sample.py`.
 
 ## Add or Debug Weight Sync
 
@@ -78,12 +87,12 @@ Read:
 
 - `unirl/distributed/weight_sync/README.md`
 - `unirl/rollout/README.md`
-- the recipe's `sync` selection in `examples/<domain>/<recipe>.yaml`
+- the recipe's `sync` selection in `examples/<path-under-examples>.yaml`
 
 Edit:
 
 - `unirl/distributed/weight_sync/`
-- `examples/<domain>/<recipe>.yaml` when selecting or tuning a backend
+- `examples/<path-under-examples>.yaml` when selecting or tuning a backend
 
 Check:
 
@@ -117,7 +126,8 @@ Check:
 
 Risk: changing sigma schedules or log-prob behavior without updating rollout and replay assumptions.
 
-See also: `unirl/types/sampling.py`, `unirl/types/rollout_resp.py`, `unirl/algorithms/diffusion_grpo.py`.
+See also: `unirl/types/sampling.py`, `unirl/types/sample.py`,
+`unirl/algorithms/flowgrpo.py`.
 
 ## Add a Reward
 
@@ -146,7 +156,7 @@ See also: `unirl/reward/local/base.py`, `unirl/types/reward.py`.
 Start with:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
+python -m unirl.train_<owner> --config-name=<path-under-examples> --cfg job --resolve
 ```
 
 Then inspect:

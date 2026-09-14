@@ -18,23 +18,28 @@ uv venv --python 3.12 --seed .venv
 source .venv/bin/activate
 uv pip install -e ".[vllm,train,infer]" --prerelease=allow
 
-# SGLang：使用另一个环境
+# SGLang，第 1 步：创建并激活另一个环境
 deactivate
 uv venv --python 3.12 --seed .venv-sglang
 source .venv-sglang/bin/activate
-uv pip install -e ".[sglang,train,infer]" --prerelease=allow
 ```
 
 SGLang 栈会通过 `causal-conv1d` 编译 CUDA extension。`PATH` 上的 CUDA 12 `nvcc`
-无法与 CUDA 13 PyTorch runtime 配合编译；应先安装 CUDA 13 compiler wheels，并设置
-`CUDA_HOME`：
+无法与 CUDA 13 PyTorch runtime 配合编译。激活 `.venv-sglang` 后，先安装 CUDA 13
+compiler wheels，再设置编译环境，最后才安装带 SGLang extras 的 UniRL：
 
 ```bash
+# SGLang，第 2 步：安装 CUDA 13 compiler toolchain
 uv pip install "nvidia-cuda-nvcc==13.0.*" "nvidia-cuda-crt==13.0.*" \
   "nvidia-nvvm==13.0.*" "nvidia-cuda-cccl==13.0.*" "nvidia-cuda-runtime==13.0.*"
+
+# SGLang，第 3 步：选择该 toolchain 并限制并行编译数
 export CUDA_HOME="$VIRTUAL_ENV/lib/python3.12/site-packages/nvidia/cu13"
 export PATH="$CUDA_HOME/bin:$PATH"
 export MAX_JOBS=4
+
+# SGLang，第 4 步：安装 UniRL 和 engine 栈
+uv pip install -e ".[sglang,train,infer]" --prerelease=allow
 ```
 
 driver 535 主机还需要让 NVIDIA `cuda-compat-13-0` forward-compat library 出现在

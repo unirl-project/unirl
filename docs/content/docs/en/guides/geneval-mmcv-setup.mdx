@@ -3,59 +3,101 @@ title: Geneval MMCV Setup
 description: Optional MMCV and MMDetection installation for Geneval/OpenMMLab workflows.
 ---
 
-This setup is optional and legacy. Run it only for the legacy
-GenEval/OpenMMLab scorer, in a **separate Python 3.10 sidecar environment**.
-Do not install this MMCV stack into UniRL's core Python 3.12 / CUDA 13 engine
-environment.
+This setup is optional and legacy. Run the GenEval/OpenMMLab scorer as a
+**separate Python 3.10 reward-service sidecar**. Its `mmcv-full==1.7.2`,
+`mmdet==2.28.2`, and PyTorch `<=2.1` stack is incompatible with UniRL's core
+Python 3.12 / CUDA 13 engine environments.
 
-## Why separate?
+## 1. Create the sidecar environment
 
-`mmcv` 1.x / `mmdet` 2.x belong to an older Python/PyTorch/CUDA compatibility
-window. Keeping the scorer behind a service/process boundary prevents those
-pins from downgrading or breaking the core environment.
-
-## Recommended versions
-
-- `mmcv` tag: `v1.7.2`
-- `mmdetection` branch: `2.x` (currently `2.28.2` in our validated env)
-
-These versions match the validated local setup used in this repository.
-
-## Install steps
-
-Create and activate a Python 3.10 environment first. Choose a PyTorch/CUDA
-build compatible with the sidecar host; it does not need to match the core
-training environment.
+The commands below use the PyTorch 2.1 / CUDA 11.8 MMCV wheel index. The
+sidecar CUDA build only needs to match its own host driver; it does not need to
+match the training environment.
 
 ```bash
+cd /path/to/UniRL
 uv venv --python 3.10 --seed .venv-geneval
 source .venv-geneval/bin/activate
 
-pip install -U openmim
-mim install mmengine
-
-cd ~/mmgrpo
-git clone https://github.com/open-mmlab/mmcv.git
-cd mmcv
-git checkout tags/v1.7.2
-MMCV_WITH_OPS=1 FORCE_CUDA=1 pip install -e . -v
-cd ..
-
-git clone https://github.com/open-mmlab/mmdetection.git
-cd mmdetection
-git checkout 2.x
-pip install -e . -v
-cd ..
+pip install --index-url https://download.pytorch.org/whl/cu118 \
+  "torch==2.1.0" "torchvision==0.16.0"
+pip install "numpy<2"
+pip install -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.1/index.html \
+  "mmcv-full==1.7.2"
+pip install "mmdet==2.28.2" "open_clip_torch>=2.20.0" "clip_benchmark>=1.4.0"
 ```
 
-## Sanity check
+These pins mirror `unirl-reward-service/envs/geneval.txt`. If no matching
+`mmcv-full` wheel exists for the sidecar platform, build tag `v1.7.2` from
+source in this same environment with a CUDA 11.8 compiler:
 
 ```bash
-python -c "import mmcv, mmdet; print('mmcv', mmcv.__version__); print('mmdet', mmdet.__version__); from mmcv.ops import nms; print('mmcv.ops ok')"
+git clone --branch v1.7.2 --depth 1 https://github.com/open-mmlab/mmcv.git
+MMCV_WITH_OPS=1 FORCE_CUDA=1 pip install -v -e ./mmcv
 ```
 
-Expected:
+## 2. Install the reward-service host dependencies
 
-- `mmcv` reports `1.7.2`
-- `mmdet` reports a `2.x` version (e.g., `2.28.2`)
-- `mmcv.ops ok` prints without import errors
+`unirl-reward-service/pyproject.toml` declares Python `>=3.12`, so do not
+editable-install that package into this Python 3.10 legacy sidecar. Install its
+host dependencies directly and run the checked-out module through
+`PYTHONPATH`:
+
+```bash
+pip install \
+  "requests>=2.31" "Pillow>=10.0" \
+  "fastapi>=0.110" "uvicorn[standard]>=0.29" "pydantic>=2.6" \
+  "ray>=2.10" "virtualenv>=20.0" "huggingface_hub>=0.30,<0.35" \
+  "pyyaml>=6.0" "einops>=0.8" "tqdm>=4.66"
+```
+
+Do not run `unirl-reward-service/install.sh`: it explicitly requires
+Python 3.12. The sidecar host and its Ray workers must both use Python 3.10;
+Ray cannot create a Python-3.10 worker environment on a Python-3.12/3.13
+cluster.
+
+## 3. Verify the scorer stack
+
+```bash
+python -c "import torch, numpy, mmcv, mmdet, open_clip, clip_benchmark; from mmcv.ops import nms; print(torch.__version__, numpy.__version__, mmcv.__version__, mmdet.__version__)"
+```
+
+Confirm PyTorch is `2.1.x` or older, NumPy is below 2, MMCV is `1.7.2`,
+MMDetection is `2.28.2`, and `mmcv.ops.nms` imports successfully.
+
+## 4. Start the GenEval reward service
+
+Run these commands from the `unirl-reward-service/` checkout. The committed
+`configs/geneval_service.yaml` exposes only `geneval` on port `8080` and points
+its Ray actor at `envs/geneval.txt`.
+
+```bash
+cd /path/to/UniRL/unirl-reward-service
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+ray start --head --num-gpus=1
+python -m reward_service --config configs/geneval_service.yaml
+```
+
+Keep the final command running. From another shell, verify readiness:
+
+```bash
+curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8080/rewards
+```
+
+`/rewards` should list `geneval`. On first start, the scorer may download its
+fallback MMDetection config/checkpoint.
+
+## 5. Connect UniRL
+
+On the training node, point the remote reward config at the sidecar before
+launching the canonical multi-teacher recipe:
+
+```bash
+export REWARD_SERVICE_URL=http://<geneval-sidecar-ip>:8080
+bash examples/run_experiment_single_node.sh \
+  diffusion/sd3/sd3_opd_multi_teacher
+```
+
+The service must remain reachable for the whole run. Stop it with `Ctrl-C`,
+then run `ray stop` in the sidecar environment when finished.

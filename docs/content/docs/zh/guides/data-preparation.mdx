@@ -64,9 +64,19 @@ Time-lapse of clouds rolling over a desert canyon.
 数据文件里没有 `negative_prompt`，也没有逐行 `seed`。guidance scale、seed、分辨率来自 `cfg.sampling`，
 不来自 manifest 行。
 
-## 图像条件 / Edit / I2V 输入
+## 当前支持的 Media 输入
 
-图生视频、编辑或其它带条件的 recipe，通过 `media_refs` 附加条件图像：
+data-source driver 当前接受以下 `(modality, role)` 组合：
+
+| 组合 | 含义 |
+|---|---|
+| `image`, `condition` | 编辑或图像条件生成的源图像。 |
+| `video`, `condition` | 视频到视频生成的源视频。 |
+| `image`, `prompt` | 作为 prompt media 传入的图像。 |
+| `audio`, `prompt` | 作为 prompt media 传入的音频。 |
+| `video`, `prompt` | 作为 prompt media 传入的视频。 |
+
+例如，通过 `media_refs` 附加条件图像：
 
 ```json
 {
@@ -78,9 +88,14 @@ Time-lapse of clouds rolling over a desert canyon.
 ```
 
 - 相对 URI 相对数据文件所在目录解析。
-- 绝对路径与 `http://`、`https://`、`s3://`、`gs://` URI 原样透传。
-- 目前 driver 每条 prompt 只加载一个 `(modality="image", role="condition")` 引用；其它 modality/role 组合会抛 `NotImplementedError`。
-- 数据契约里没有 video URI role：文生视频用 `.txt` prompt，图生视频用图像 condition 引用。
+- 支持绝对本地路径与 `http://` / `https://` URI。当前会拒绝 `s3://` 和 `gs://`
+  引用；请先落到本地或通过 HTTP(S) 提供。
+- 每条 prompt 最多一个 image condition，也最多一个 video condition。
+- condition batch 必须同质：只要某一行有 image condition，同一 batch 的每一行都必须有；
+  video condition 同理。
+- 同一 batch 不能混用 `(video, prompt)` 与 `(video, condition)`，请拆成不同 request。
+- prompt role media 会成为 batch 对齐、允许稀疏行的 `MediaRefs` primitive，并传给支持它的
+  model adapter。data source 接受某个组合，不代表每个 rollout engine/model 都支持它。
 
 ## Prompt 如何变成 Rollout Group
 

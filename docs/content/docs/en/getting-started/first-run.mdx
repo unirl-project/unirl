@@ -3,7 +3,10 @@ title: First Run
 description: Compose and launch a UniRL experiment recipe.
 ---
 
-Start by composing a recipe before launching Ray work. This catches missing paths, invalid Hydra overrides, and cross-component contract errors early.
+Start by composing a recipe before launching Ray work. `--cfg job --resolve`
+checks Hydra composition, override syntax, and interpolation/environment
+resolution. It does not instantiate runtime dataclasses or run trainer and
+cross-component validation.
 
 ```bash
 python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside --cfg job --resolve
@@ -11,7 +14,7 @@ python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside --cfg 
 
 ## Single Node
 
-Use the generic single-node launcher when you want the scripts to prepare local Ray runtime defaults. The first argument is a bucketed recipe name (`<domain>/<recipe>`):
+Use the generic single-node launcher when you want the scripts to prepare local Ray runtime defaults. The first argument is the recipe path below `examples/` (`<path-under-examples>`, without `.yaml`):
 
 ```bash
 bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside

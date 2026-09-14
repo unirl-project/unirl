@@ -9,7 +9,8 @@ description: 启动器、Ray 启动、集群 geometry 和启动前检查。
 ## 启动器
 
 单机作业使用 single-node launcher；多机作业使用 role-aware multinode launcher，让
-worker 加入 Ray head 后再训练。第一个参数是 recipe 在 `examples/` 下的路径；`ENTRY`
+worker 加入 Ray head 后再训练。第一个参数是 `examples/` 下的 recipe 路径
+（`<path-under-examples>`，不含 `.yaml`）；`ENTRY`
 选择非 diffusion 入口（`train_ar`、`train_sft`、`train_async_ar`、
 `train_async_diffusion`、`train_pe`、`train_unified_model` 或 `train_agentic`）。
 
@@ -41,7 +42,9 @@ bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_coloc
   stack.num_updates_per_batch=2
 ```
 
-recipe 的 validators 会在 Ray work 前报告不一致的 geometry，所以务必先做 compose check。
+Hydra 组合不能证明这些 geometry 有效。实际 geometry 检查要等 trainer/worker 构造时才会
+运行，而且约束因 trainer 而异。修改 topology 或 batch 字段时，必须同时检查 owning trainer
+与所选 recipe。
 
 ## 启动前检查
 
@@ -52,3 +55,7 @@ python -m unirl.train_diffusion \
   --config-name=diffusion/sd3/sd3_sglang_rollout_colocate \
   --cfg job --resolve
 ```
+
+该命令只检查 Hydra 组合、override 以及插值/环境变量解析；它不会实例化 dataclass，也不会
+运行 trainer、跨组件或 batch-geometry 校验。仍需在目标 topology 上做小规模真实 smoke
+启动，才能触发构造期检查。

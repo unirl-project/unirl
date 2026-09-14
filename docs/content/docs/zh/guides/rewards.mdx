@@ -7,7 +7,9 @@ description: Reward service、本地与远程 backend，以及扩展点。
 
 ## 结构
 
-一个 reward 恰好是一个 **backend**，由 `RewardService`（`unirl/reward/service.py`）持有，并通过 `score_and_attach` 给一个 `RolloutTrack` 打分：
+一个 reward 恰好是一个 **backend**，由 `RewardService`（`unirl/reward/service.py`）持有。
+`score_and_attach(sample)` 对 frontier `Part` 上生成的 primitives 打分，并返回已附加
+`Part.rewards` 和 `Part.component_rewards` 的 `Sample`：
 
 - **本地**进程内 scorer（`unirl/reward/local/`：PickScore、HPS、OCR、GenEval2、VideoPickScore 等），或
 - **远程** HTTP 客户端（`RemoteRewardBackend`），对接 `unirl-reward-service/` 独立 server。

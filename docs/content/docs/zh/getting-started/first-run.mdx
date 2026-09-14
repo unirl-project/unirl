@@ -3,7 +3,9 @@ title: 首次运行
 description: 组合并启动一个 UniRL 实验配方。
 ---
 
-启动 Ray 作业前，先做 Hydra compose check。它能提前暴露路径、override、组件契约和 batch geometry 问题。
+启动 Ray 作业前，先做 Hydra compose check。`--cfg job --resolve` 检查 Hydra 组合、
+override 语法以及插值/环境变量解析；它不会实例化运行时 dataclass，也不会运行 trainer
+或跨组件校验。
 
 ```bash
 python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside --cfg job --resolve
@@ -11,7 +13,8 @@ python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside --cfg 
 
 ## 单机运行
 
-单机通用启动器，第一个参数是 bucket 化的 recipe 名（`<domain>/<recipe>`）：
+单机通用启动器的第一个参数是 `examples/` 下的 recipe 路径
+（`<path-under-examples>`，不含 `.yaml`）：
 
 ```bash
 bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside

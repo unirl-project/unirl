@@ -12,20 +12,22 @@ This documentation site has two audiences:
 
 ## Running Training
 
-Each domain has its own entrypoint, all driven the same way:
+Each domain has its own entrypoint and trainer lifecycle; the invocation syntax
+is consistent:
 
 ```bash
-python -m unirl.train_diffusion       --config-name=<recipe-path>  # diffusion image/video
-python -m unirl.train_ar              --config-name=<recipe-path>  # autoregressive/VLM RL
-python -m unirl.train_sft             --config-name=<recipe-path>  # supervised fine-tuning
-python -m unirl.train_async_ar        --config-name=<recipe-path>  # asynchronous AR RL
-python -m unirl.train_async_diffusion --config-name=<recipe-path>  # asynchronous diffusion RL
-python -m unirl.train_pe              --config-name=<recipe-path>  # prompt enhancement
-python -m unirl.train_unified_model   --config-name=<recipe-path>  # mixed AR + diffusion
-python -m unirl.train_agentic         --config-name=<recipe-path>  # agentic tool use
+python -m unirl.train_diffusion       --config-name=<path-under-examples>  # diffusion image/video
+python -m unirl.train_ar              --config-name=<path-under-examples>  # autoregressive/VLM RL
+python -m unirl.train_sft             --config-name=<path-under-examples>  # supervised fine-tuning
+python -m unirl.train_async_ar        --config-name=<path-under-examples>  # asynchronous AR RL
+python -m unirl.train_async_diffusion --config-name=<path-under-examples>  # asynchronous diffusion RL
+python -m unirl.train_pe              --config-name=<path-under-examples>  # prompt enhancement
+python -m unirl.train_unified_model   --config-name=<path-under-examples>  # mixed AR + diffusion
+python -m unirl.train_agentic         --config-name=<path-under-examples>  # agentic tool use
 ```
 
-`<recipe>` is a self-contained YAML filename (without `.yaml`) in the bucketed `examples/` tree, addressed as `<domain>/<recipe>` — for example:
+`<path-under-examples>` is the selected self-contained YAML's path below
+`examples/`, without `.yaml` — for example:
 
 ```bash
 python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside

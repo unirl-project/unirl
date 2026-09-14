@@ -11,7 +11,8 @@ plus Hydra overrides.
 
 Use the single-node launcher for local or one-node jobs, and the multinode
 launcher when workers need to join a Ray head before training starts. The first
-argument is a bucketed recipe name (`<domain>/<recipe>`); `ENTRY` selects a non-diffusion
+argument is the recipe path below `examples/` (`<path-under-examples>`, without
+`.yaml`); `ENTRY` selects a non-diffusion
 entrypoint (`train_ar`, `train_sft`, `train_async_ar`,
 `train_async_diffusion`, `train_pe`, `train_unified_model`, or
 `train_agentic`).
@@ -49,15 +50,23 @@ bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_coloc
   stack.num_updates_per_batch=2
 ```
 
-The recipe's validators report inconsistent geometry before Ray work starts, so
-always run a compose check first.
+Hydra composition does not prove that this geometry is valid. Live geometry
+checks run later in trainer/worker construction, and their exact constraints
+differ by trainer. Review the owning trainer plus the selected recipe whenever
+changing topology or batch fields.
 
 ## Pre-Run Checks
 
-For any large run, first compose and resolve the recipe without launching Ray work:
+For any large run, first compose and resolve the recipe without launching Ray
+work:
 
 ```bash
 python -m unirl.train_diffusion \
   --config-name=diffusion/sd3/sd3_sglang_rollout_colocate \
   --cfg job --resolve
 ```
+
+This command checks Hydra composition, overrides, and interpolation/environment
+resolution only. It does not instantiate dataclasses or run trainer,
+cross-component, or batch-geometry validation. A small real smoke launch on the
+target topology is still required to exercise construction-time checks.

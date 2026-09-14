@@ -7,7 +7,10 @@ description: Reward service, local and remote backends, and extension points.
 
 ## Structure
 
-A reward is exactly one **backend**, held by `RewardService` (`unirl/reward/service.py`), which scores a `RolloutTrack` via `score_and_attach`:
+A reward is exactly one **backend**, held by `RewardService`
+(`unirl/reward/service.py`). `score_and_attach(sample)` scores the generated
+primitives on the frontier `Part` and returns the `Sample` with
+`Part.rewards` and `Part.component_rewards` attached:
 
 - a **local** in-process scorer (`unirl/reward/local/`: PickScore, HPS, OCR, GenEval2, VideoPickScore, …), or
 - the **remote** HTTP client (`RemoteRewardBackend`) talking to the standalone `unirl-reward-service/` server.

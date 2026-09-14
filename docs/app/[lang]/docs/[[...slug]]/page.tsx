@@ -18,17 +18,25 @@ export default async function Page({ params }: DocsPageProps) {
   if (!page) notFound();
 
   const MDX = page.data.body;
+  const isGeneratedReadme = page.path
+    .split("/")
+    .at(-1)
+    ?.startsWith("readme-");
 
   return (
     <DocsPage
       toc={page.data.toc}
       full={page.data.full}
-      editOnGithub={{
-        owner: "haonan3",
-        repo: "UniRL",
-        sha: "main",
-        path: `docs/content/docs/${page.path}`,
-      }}
+      editOnGithub={
+        isGeneratedReadme
+          ? undefined
+          : {
+              owner: "unirl-project",
+              repo: "unirl",
+              sha: "main",
+              path: `docs/content/docs/${page.path}`,
+            }
+      }
     >
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>

@@ -1,6 +1,6 @@
 ---
 title: Hydra Configuration
-description: How UniRL composes, validates, and overrides runtime configuration.
+description: How UniRL composes, instantiates, and overrides runtime configuration.
 ---
 
 UniRL uses Hydra. Recipes are self-contained YAML files under `examples/`,
@@ -28,11 +28,23 @@ CLI Hydra override > launcher env var > YAML default
 
 ## Runtime Contracts
 
-Cross-component validators run before Ray worker creation. The implementation details and validator list live in the generated [Config Package README](/en/docs/configuration/readme-config-package).
+`--cfg job --resolve` stops after Hydra composes the selected YAML and resolves
+overrides and interpolations such as `${oc.env:...}`. It does **not** instantiate
+the recipe, check filesystem paths, run dataclass `__post_init__` methods, or
+prove cross-component and batch-geometry compatibility.
+
+Component config dataclass validation runs later, when the owning driver/actor
+constructs and instantiates that component. The `validate_*` cross-component
+helpers in `unirl/config/validation.py` currently have no live call site, so do
+not rely on them as a pre-Ray validation phase. Trainer constructors and worker
+startup contain additional live checks, but reaching those checks requires a
+real runtime construction path. The available config types and intended
+contracts are documented in the generated [Config Package README](/en/docs/configuration/readme-config-package).
 
 `sync` and the tensor transport solve different problems. `sync` (`cfg.sync`) sends trainer weights back to dedicated rollout engines, while the tensor transport (`unirl/distributed/tensor/`) is the data plane for moving bulky rollout outputs between workers.
 
-Use a compose check before launching a large job:
+Use a compose check before launching a large job, but treat it only as a Hydra
+composition/environment-resolution check:
 
 ```bash
 python -m unirl.train_diffusion \

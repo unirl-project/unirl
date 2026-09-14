@@ -13,9 +13,11 @@ npm run build
 npm run typecheck
 ```
 
-`npm run docs:check` regenerates README references, runs Fumadocs MDX
-generation, and checks authored links, navigation targets, retired names, and
-documented framework paths.
+`npm run docs:check` regenerates README references and checks local
+Markdown/MDX page links, recognizable heading fragments, relative or `public/`
+static assets, navigation targets, retired names, and explicit repository paths
+against the framework checkout. It does not crawl external URLs or validate
+prose semantics.
 
 `npm run sync:readmes` regenerates English package-reference pages from the
 official framework README files. Chinese routes use Fumadocs' English fallback
@@ -41,9 +43,17 @@ npm run build
 ```
 
 CI and deployment check out the official framework separately and use strict
-sync. Missing configured README sources fail before generated pages are
-changed. A deliberate docs-only preview may use
+sync. When the framework provides `docs/reference-manifest.json`, the checker
+validates every listed entrypoint and default recipe, exported algorithm
+module, model bundle, and recipe. Older framework checkouts use a
+source-discovered fallback instead of a second hand-maintained inventory.
+Missing configured README sources fail before generated pages are changed. A deliberate docs-only preview may use
 `UNIRL_SYNC_STRICT=0 npm run sync:readmes`.
+
+The pull-request and deployment workflows synchronize README references once,
+then use `ci:typecheck` and `ci:build` to suppress the normal
+`pretypecheck`/`prebuild` synchronization hooks. Local `typecheck` and `build`
+retain those hooks so they also work when run independently.
 
 ## Structure
 

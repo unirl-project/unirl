@@ -72,10 +72,19 @@ inside it. Legacy precomputed-embedding fields (for example `prompt_embed_path`,
 There is no `negative_prompt` or per-row `seed` in the data file. Guidance scale,
 seed, and resolution come from `cfg.sampling`, not from manifest rows.
 
-## Image-Conditioned and Edit/I2V Inputs
+## Supported Media Inputs
 
-For image-to-video, editing, or other conditioned recipes, attach a condition
-image through `media_refs`:
+The data-source driver currently accepts these `(modality, role)` pairs:
+
+| Pair | Meaning |
+|---|---|
+| `image`, `condition` | Source image for edit or image-conditioned generation. |
+| `video`, `condition` | Source video for video-to-video generation. |
+| `image`, `prompt` | Image carried as prompt media. |
+| `audio`, `prompt` | Audio carried as prompt media. |
+| `video`, `prompt` | Video carried as prompt media. |
+
+For example, attach a condition image through `media_refs`:
 
 ```json
 {
@@ -87,11 +96,19 @@ image through `media_refs`:
 ```
 
 - Relative URIs resolve against the dataset file's directory.
-- Absolute paths and `http://`, `https://`, `s3://`, `gs://` URIs pass through unchanged.
-- Today the driver loads exactly one `(modality="image", role="condition")` ref
-  per prompt; other modality/role pairs raise `NotImplementedError`.
-- There is no video URI role in the data contract: text-to-video uses `.txt`
-  prompts, and image-to-video uses an image condition ref.
+- Absolute local paths and `http://` / `https://` URIs are accepted. `s3://` and
+  `gs://` refs are currently rejected; materialize them locally or expose them
+  over HTTP(S).
+- Each prompt may carry at most one image condition and at most one video
+  condition.
+- Condition batches must be homogeneous: if any row has an image condition,
+  every row in that batch must have one; the same rule applies to video
+  conditions.
+- A batch cannot mix `(video, prompt)` and `(video, condition)` refs. Split
+  those rows into separate requests.
+- Prompt-role media is represented as a batch-aligned sparse `MediaRefs`
+  primitive and is passed to model adapters that support it. Support by the
+  data source does not imply every rollout engine/model accepts every pair.
 
 ## How Prompts Become Rollout Groups
 

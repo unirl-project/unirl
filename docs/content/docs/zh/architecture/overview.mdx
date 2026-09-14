@@ -3,21 +3,28 @@ title: 概览
 description: UniRL 的主循环、各领域 trainer、rollout engine、train stack 和同步边界。
 ---
 
-UniRL 围绕一个 Hydra 驱动的训练循环组织。本页只保留导航层说明；
+UniRL 使用 Hydra 入口和按领域区分的 trainer 生命周期。本页只保留导航层说明；
 贴近代码的契约来自 `unirl/README.md` 和各 package README，
 并以页面形式内嵌在各文档分区的侧边栏中。
 
 ```text
-train_diffusion | train_ar | train_sft | train_pe | train_unified_model
-train_async_diffusion | train_async_ar | train_agentic
-  -> register and validate Hydra config
-  -> <Domain>Trainer acquires a Ray DevicePool (placement)
-  -> trainer builds the rollout workers and train workers
-  -> loop: rollout -> reward -> advantage -> train -> optional weight sync
+同步 RL：
+  train_diffusion | train_ar | train_pe | train_unified_model | train_agentic
+  -> rollout -> reward -> advantage -> train -> optional weight sync
+
+监督训练：
+  train_sft
+  -> records -> build Part -> train
+
+异步 RL：
+  train_async_diffusion | train_async_ar
+  -> 独立的 train 与 rollout placement slab
+  -> 带权重版本发布的 buffered rollout/reward/advantage/train
 ```
 
-每个领域都有自己的入口和 trainer，驱动方式一致。训练栈只有一套：早期的 v1
-actor-group runtime 已退役，single-controller 的 `Remote` / `placement` 层现在是唯一路径。
+每个入口都验证自己的 recipe，再交给对应 trainer。它们共享 single-controller 的
+`Remote` / `placement` 基础设施和训练栈契约，但不共享同一种 placement 布局或同一个
+RL 生命周期。早期的 v1 actor-group runtime 已退役。
 
 ## 主要参考
 
@@ -31,32 +38,39 @@ actor-group runtime 已退役，single-controller 的 `Remote` / `placement` 层
 ## 数据流
 
 ```text
-<Domain>Trainer
-  -> build RolloutReq, dispatch to the rollout engine
-  -> RolloutResp with tracks[name] (conditions, segments, rewards, media)
-  -> RewardService.score_and_attach    -> track.rewards
-  -> RolloutTrack.compute_advantages    -> track.advantages
-  -> TrainStack.train_track(track)      shards across train workers, runs the mini-batch loop
+RL trainer
+  -> 构建 request Sample，发送给 rollout engine
+  -> 填充后的 Sample，包含生成的 Part（conditions、segments、primitives、media previews）
+  -> RewardService.score_and_attach(sample) -> frontier Part.rewards
+  -> Part.compute_advantages                 -> Part.advantages
+  -> TrainStack.train_track(part)            在 train worker 间分片并运行 mini-batch loop
   -> optional weight sync back to dedicated rollout workers
 ```
 
-`RolloutReq` 和 `RolloutResp`（位于 `unirl/types/`）是 rollout 与 training 的关键边界。新的 rollout engine 应把 backend-specific 输出转换成这些 typed contract，而不是把 backend object 泄漏到 training 代码中。
+`Sample` 是端到端 rollout 边界：每个 engine 都接收并返回 `Sample`，其中有序的
+`Sample.parts` 由 `Part` 对象组成。新的 rollout engine 应把 backend-specific 输出转换成
+`unirl/types/sample.py` 中的这些类型，而不是把 backend object 泄漏到 training 代码中。
 
-trainer（`unirl/trainer/<domain>.py`）负责 placement 块、worker 构建，以及 rollout、reward、advantage、train、sync 的阶段顺序。
+每个 trainer（`unirl/trainer/<domain>.py`）负责自己的 placement 块、worker 构建和阶段顺序。
+SFT 没有 rollout、reward、advantage 或 weight-sync 阶段；异步 AR/diffusion 使用彼此独立的
+train 与 rollout slab。
 
 部署模式和 engine-specific 要求以生成的
 [Rollout Package README](/zh/docs/architecture/readme-rollout) 为准。
 
 ## 每 track 一个算法
 
-训练 loss 是单个 per-track 的 `cfg.algorithm`——一个 `StageAlgorithm`，例如
-`unirl.algorithms.diffusion_grpo.DiffusionGRPO`。不存在独立的 driver 侧 "rollout control" 对象：
+生成 Part 的训练 loss 由其配置的 `StageAlgorithm` 负责，例如 diffusion 的
+`unirl.algorithms.flowgrpo.FlowGRPO` 或自回归的 `unirl.algorithms.grpo.GRPO`。
+不存在独立的 driver 侧 "rollout control" 对象：
 
-- reward→advantage 的 z-score 在 `RolloutTrack.compute_advantages`（`unirl/types/rollout_resp.py`）；
+- reward→advantage 的 z-score 在 `Part.compute_advantages`（`unirl/types/sample.py`）；
 - SDE-index 选择在 `DiffusionSamplingParams.resolve_sde_indices`（`unirl/types/sampling.py`）。
 
-单 track recipe 绑定一个 `cfg.algorithm`；多 track recipe（如 PE）为每个 track 嵌套一个
-`algorithm:` 节点，并运行兄弟 `TrainStack`。见 [Trainer 与训练栈](/zh/docs/architecture/trainer-v2)。
+单 stage recipe 绑定一个 `cfg.algorithm`；PE 为每个生成 Part 嵌套一个 `algorithm:`
+节点（`diffusion.algorithm`、`ar.algorithm`），并运行兄弟 `TrainStack`。
+unified-model 训练则用 `UnifiedModelTrainStack` 把 AR 和 image loss 累积到 shared-backbone
+的一次 optimizer step。见 [Trainer 与训练栈](/zh/docs/architecture/trainer-v2)。
 
 ## Roadmap 路线图
 

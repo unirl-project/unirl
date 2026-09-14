@@ -20,8 +20,9 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
 
 ## 本周期概览
 
-- **框架 Infra** —— 将训练 backend 改造为可插拔架构（新增 VeOmni backend，支持可组合的 FSDP / SP / EP），
-  补齐端到端 checkpoint / resume，加固 vLLM-Omni rollout、异步 reward 与跨 engine 一致性，并新增可微 reward（REFL）训练模式。
+- **框架 Infra** —— 加固可插拔的原生 FSDP/HSDP 与 VeOmni FSDP/SP/EP 路径，
+  补齐端到端 checkpoint / resume，加固 vLLM-Omni rollout、异步 reward 与跨 engine
+  一致性，并新增可微 reward（REFL）训练模式。
 - **算法 Algorithm** —— 补齐 policy-gradient / PPO 的能力缺口（critic + GAE、KL / reference policy、
   reward credit assignment），并以 DR-Tune 为起点建设 REFL 家族。
 - **模型 Model** —— 围绕 Diffusers 重要模型族建设核心支持矩阵（SD3.5、Qwen-Image、FLUX、Wan / HunyuanVideo），
@@ -29,7 +30,7 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
 
 | 线 | 条目 | 优先级 | 状态 |
 |---|---|---|---|
-| 框架 Infra | VeOmni 训练 backend | `P0` | `[ ]` 计划中 |
+| 框架 Infra | VeOmni 训练 backend | `P0` | `[x]` 已完成 |
 | 框架 Infra | REFL（可微 reward）infra | `P0` | `[ ]` 计划中 |
 | 框架 Infra | Checkpoint / Resume 端到端化 | `P1` | `[~]` 部分完成 |
 | 框架 Infra | vLLM-Omni rollout 扩展与加固 | `P1` | `[ ]` 计划中 |
@@ -49,31 +50,27 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
 
 ## 框架 Infra
 
-### `[ ]` `P0` VeOmni Training Backend
+### `[x]` `P0` VeOmni Training Backend
 
-- **现状。** trainer 已将 `backend:` 抽象为可替换的配置块（见 `examples/<domain>/*.yaml`），
-  当前唯一实现是原生的 `FSDPBackend`（`unirl/train/backend/fsdp.py`：FSDP2 wrap，叠加
-  LoRA / NFT / EMA 注入、offload、checkpoint）。`TrainTopology` 中已经预留了
-  `dp / tp / pp / sp / ep / cp` 字段，但目前只有 DP / FSDP 是 topology-driven；`train/inject.py`
-  中存在一条 hybrid-FSDP（HSDP）mesh 路径，但仍为硬编码实现（shard size 8），尚未从 `TrainTopology` 映射。
-- **目标。** 在同一个 backend 契约下新增 `VeOmniBackend`，复用 VeOmni 的 model-centric
-  分布式 recipe（通过 high-level parallel-plan API 可组合的 FSDP / SP / EP）。
+- **现状。** trainer 已将 `backend:` 抽象为可替换配置块。原生 `FSDPBackend` 位于
+  `unirl/train/backend/fsdp/backend.py`，支持 FSDP2、HSDP 和 no-shard 模式；
+  `VeOmniBackend` 位于 `unirl/train/backend/veomni/`，为已提交的 recipe 提供 FSDP2、
+  sequence-parallel 和 expert-parallel 路径。
+- **目标。** 让两个 backend 继续遵循同一 train-stack 契约，并在不放松 topology validation
+  的前提下扩展模型覆盖。
 - **追踪。** *(RFC needed)*
 - TODO：
-  - `[ ]` 实现 `unirl/train/backend/veomni.py`，满足 backend Remote 契约
-    （LoRA / NFT / EMA 注入、optimizer、scheduler、checkpoint、onload/offload）。
-  - `[ ]` 将 `TrainTopology` 映射到 VeOmni 的 parallel-plan API（FSDP / FSDP2、HSDP、
-    基于 DeepSpeed-Ulysses / Async-Ulysses 的 Sequence Parallelism、面向 MoE 的 Expert Parallelism）。
-  - `[ ]` 为长视频 / AR 长序列接通 SP，为 MoE backbone（HunyuanImage 3.x）接通 EP。
+  - `[x]` 实现 `VeOmniBackend` 和已提交的 SP/EP recipe。
+  - `[x]` 通过 `FSDPConfig` 显式配置原生 HSDP shard size。
   - `[ ]` Torch Distributed Checkpoint（sharded），与「Checkpoint / Resume 端到端化」项共享 save/resume 契约。
-  - `[ ]` 保证 Policy / Stage 与 weight-sync（LoRA IPC / NCCL）链路在新 backend 下保持兼容。
+  - `[ ]` 扩展模型特定的 EP export layout 和 weight-sync 覆盖。
 
 ### `[ ]` `P0` REFL 支持（可微 reward 训练模式）
 
-- **现状。** reward 在 rollout actor 上计算为标量后再转换为 advantage（`reward/`，随后进入
-  `algorithm.compute_advantages`），尚无从 reward model 反传回 denoiser 的梯度通路。
-  目前 train-side 算法都是 policy-gradient（`DiffusionGRPO` / `ARGRPO`，以及 `DiffusionDPPO`）
-  和 forward-process（`DiffusionNFT`）。
+- **现状。** reward 以标量形式附加到 frontier `Part`，再由
+  `Part.compute_advantages` 转换为 advantage；尚无从 reward model 反传回 denoiser 的梯度通路。
+  目前 train-side 算法包括 diffusion policy-gradient（`FlowGRPO` / `FlowDPPO`）、
+  autoregressive policy-gradient（`GRPO` 及相关目标）和 forward-process（`DiffusionNFT`）。
 - **目标。** 新增一条可微 reward 训练模式，使 reward 梯度能够穿过采样过程反传至模型。
   这是 **REFL 算法家族**（DR-Tune 以及其他 reward-feedback 方法——见下方算法一节）的 infra 前置条件。
 - **追踪。** *(RFC needed)*
@@ -145,8 +142,9 @@ description: 框架 Infra、算法 Algorithm、模型 Model 三条线的近期�
 
 ### `[ ]` `P2` 🙋 Rollout Engine 一致性矩阵
 
-- **现状。** `RolloutReq` 已把 sigmas 作为跨 trainside / SGLang / vLLM-Omni 的 single source of truth，
-  `rollout/engine/sigma_verify.py` 提供校验；但各 engine 对 logprob source、latent capture、
+- **现状。** 生成 `Part` 的 sampling params 已把 sigmas 作为跨 trainside / SGLang /
+  vLLM-Omni 的 single source of truth，`rollout/engine/sigma_verify.py` 提供校验；
+  但各 engine 对 logprob source、latent capture、
   initial latents、media refs 与 multi-track response 的覆盖仍不统一。
 - **目标。** 形成 model × rollout engine × algorithm 的 smoke / conformance matrix，把新增模型和算法接入时的
   行为差异前置暴露。
@@ -198,19 +196,20 @@ UniRL 的 train-side 算法分为三大家族。下表列出当前支持情况�
 
 | 家族 | 优化方式 | 现已支持 | 计划中 |
 |---|---|---|---|
-| Policy-Gradient / PPO | rollout log-prob + advantage，使用 clip / KL 代理目标 | GRPO 家族（FlowGRPO / DanceGRPO / MixGRPO）、DPPO、ARGRPO、DRPO | DDPO、DPOK、KL / reference policy、带 critic + GAE 的完整 PPO |
+| Policy-Gradient / PPO | rollout log-prob + advantage，使用 clip / KL 代理目标 | FlowGRPO（含 DanceGRPO / MixGRPO recipe）、GRPO、GSPO、PPO、DPPO / CPPO、FlowDPPO、DRPO | DDPO、DPOK、KL / reference policy |
 | REFL（reward-feedback） | 将可微 reward 沿采样链反传 | — | DR-Tune、ReFL、DRaFT、AlignProp |
 | 偏好 / forward-process | forward-process 或成对目标（不依赖 rollout log-prob） | NFT | — |
 
 ### `[~]` `P1` Policy-Gradient / PPO 家族
 
-- **现状。** PPO 的*目标函数*已有部分支持：GRPO 家族使用 PPO 的 clipped-ratio 代理
-  （`diffusion_grpo.py` / `ar_grpo.py` 的 `_grpo_clip_loss`）；`DiffusionDPPO` 将 ratio-clip 替换为 KL-ADV masking；
-  `ARGRPO` 是文本 / VLM 变体。缺的是 critic-based 优势估计与扩散原生的 PPO recipe。
+- **现状。** PPO-style 目标已有支持：`FlowGRPO`（`flowgrpo.py`）是 diffusion/flow
+  clipped-ratio 目标，`GRPO`（`grpo.py`）是文本 / VLM 目标，`FlowDPPO` 提供 diffusion
+  KL-ADV masking。AR `PPO` 已包含 value head 与 GAE；这里剩余的缺口是 diffusion-native
+  PPO recipe 和更多 control 变体。
 - **追踪。** *(RFC needed)*
 - 计划类型：
-  - `[ ]` `P1` **完整 PPO（value critic + GAE）**——相对 GRPO 缺失的核心能力；需要在 latent / timestep
-    （扩散）或 token（AR / VLM）上增加 value head。优先在 AR / VLM 轨道实现。
+  - `[x]` **AR PPO（value critic + GAE）**——已由 `PPO` 实现；diffusion value-critic
+    支持仍待补齐。
   - `[ ]` `P2` 🙋 **DDPO（Black et al. 2023）**——在去噪 MDP 上的 PPO-clipped policy gradient；
     主要是在现有 clip 内核上调整优势估计与 recipe。
   - `[ ]` `P2` 🙋 **DPOK（Fan et al. 2023）**——带 KL 正则的 policy gradient。
@@ -221,7 +220,7 @@ UniRL 的 train-side 算法分为三大家族。下表列出当前支持情况�
 
 - **现状。** rollout segment 已携带 old-policy logprob（用于 GRPO / DPPO ratio），但冻结 reference
   policy 与 KL penalty 尚未实现。DPPO 已有 KL-ADV masking，但它不是通用 reference-policy KL 控制层。
-- **目标。** 为 PPO、DPOK、Diffusion-DPO、ARGRPO / GSPO 等方法补齐共享的 reference-policy
+- **目标。** 为 PPO、DPOK、Diffusion-DPO、GRPO / GSPO 等方法补齐共享的 reference-policy
   基础设施与 KL controller。
 - **追踪。** *(RFC needed)*
 - TODO：
@@ -233,9 +232,9 @@ UniRL 的 train-side 算法分为三大家族。下表列出当前支持情况�
 
 ### `[ ]` `P2` Reward / Advantage Credit Assignment 整合
 
-- **现状。** `RolloutTrack.compute_advantages` 已支持 GRPO 风格 group advantage，
-  `RolloutResp.propagate_rewards` 已支持 mean / max / sum 的 parent-child reward 聚合；
-  `algorithms/normalizers.py` 与 `reward/aggregation.py` 也已有若干归一化 / 聚合工具。
+- **现状。** `Part.compute_advantages` 已支持 GRPO 风格 group advantage，
+  `Sample.propagate_rewards` 已支持 mean / max / sum 的 parent-child reward 聚合；
+  共享数值 helper 位于 `types/advantages.py`。
 - **目标。** 把现有分散能力整合为算法共享层，避免每个 algorithm / recipe 重复处理 reward shaping。
 - **追踪。** *(RFC needed)*
 - TODO：
@@ -282,7 +281,7 @@ REFL 训练 infra（见上方框架一节）之上，下面汇集若干算法类
 
 - **现状。** `DiffusionNFT`（使用 default / old LoRA adapter 进行 forward-process 重建）已实现。
 - *候选。* 🙋 Diffusion-DPO——成对偏好优化（无需 reward model）。注意它与现有的
-  `DiffusionDPPO` 不同：后者是带 KL masking 的 policy optimization，不是偏好 DPO。
+  `FlowDPPO` 不同：后者是带 KL masking 的 policy optimization，不是偏好 DPO。
 
 ## 模型 Model
 

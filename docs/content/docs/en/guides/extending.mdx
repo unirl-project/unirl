@@ -9,20 +9,21 @@ Use existing boundaries rather than adding cross-cutting glue. Most extensions n
 
 | Goal | Primary location | How a recipe wires it |
 |---|---|---|
-| Add a model | `unirl/models/<model_name>/` | `@dataclass` config referenced by `_target_` under the recipe's `model:` block |
+| Add a model | `unirl/models/<model_name>/` | `_target_` entries under `bundle:` and `pipeline:`; the pipeline receives the shared bundle |
 | Add a rollout engine | `unirl/rollout/engine/<engine>/` | `@dataclass` config referenced by `_target_` under `rollout:` |
 | Add a train-side algorithm | `unirl/algorithms/` | a `BaseAlgorithmConfig` subclass referenced by `_target_`, bound under a track's `algorithm:` node |
 | Add a reward scorer | `unirl/reward/local/` | a spec `@dataclass` referenced by `_target_` under `reward.backend.config` |
 | Add a training backend | `unirl/train/backend/` | the `Remote` backend contract (alongside `FSDPBackend`) |
-| Add a recipe | `examples/<domain>/<recipe>.yaml` | `--config-name=<domain>/<recipe>` |
+| Add a recipe | `examples/<path-under-examples>.yaml` | `python -m unirl.train_<owner> --config-name=<path-under-examples>` |
 
 ## Adding a Model
 
 1. Add `unirl/models/<model_name>/`.
-2. Define the model's config `@dataclass` next to it (referenced by `_target_` in the recipe).
-3. Implement a bundle that exposes the trainable stages needed by training and rollout.
-4. Add condition, text/vision, diffusion, and VAE helpers as needed.
-5. Add at least one `examples/<domain>/<recipe>.yaml` recipe.
+2. Define the model's config `@dataclass` next to it.
+3. Implement a bundle that exposes the trainable and frozen modules needed by training and rollout.
+4. Implement a pipeline that consumes that bundle and exposes the trainable stages and sampling path.
+5. Wire both `bundle:` and `pipeline:` blocks in at least one
+   `examples/<path-under-examples>.yaml` recipe.
 6. Document required external checkpoints through YAML env interpolation or launcher docs.
 
 ## Adding a Rollout Engine
@@ -30,12 +31,15 @@ Use existing boundaries rather than adding cross-cutting glue. Most extensions n
 1. Add a typed config under `unirl/rollout/engine/<engine>/`.
 2. Reference it by `_target_` under the recipe's `rollout:` block.
 3. Implement the engine contract from `unirl/rollout/engine/base.py`.
-4. Return canonical `RolloutResp` data (populate `tracks[name]`).
+4. Implement `generate(sample: Sample) -> Sample`, filling the appropriate
+   generated `Part` in `Sample.parts`.
 5. If the engine is dedicated, define trainer-to-rollout weight sync.
 
 ## Adding a Train-Side Algorithm
 
-The training loss is a per-track `StageAlgorithm`. Add a new class only when the loss math changes (recipe compositions like DanceGRPO / MixGRPO reuse `DiffusionGRPO`).
+The training loss for a generated Part is a `StageAlgorithm`. Add a new class
+only when the loss math changes (recipe compositions like DanceGRPO / MixGRPO
+reuse `FlowGRPO`; autoregressive GRPO uses `GRPO`).
 
 1. Subclass `StageAlgorithm` (`unirl/algorithms/base.py`).
 2. Define a config subclassing `BaseAlgorithmConfig` (a plain `@dataclass`) next to it.

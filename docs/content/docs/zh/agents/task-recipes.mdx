@@ -20,12 +20,17 @@ Edit:
 Check:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
+python -m unirl.train_<owner> --config-name=<path-under-examples> --cfg job --resolve
 ```
 
-Risk: placement、rollout batch size、train-stack batch geometry 不匹配。
+`<owner>` 按 recipe 的入口选择（`diffusion`、`ar`、`sft`、
+`async_diffusion`、`async_ar`、`pe`、`unified_model` 或 `agentic`）；
+`<path-under-examples>` 是 `examples/` 下不带扩展名的路径。
 
-See also: `unirl/train/stack.py`、`unirl/config/`。
+Risk: 把一个 trainer 生命周期的 rollout 或 placement 假设套到另一个 trainer，
+或 batch geometry 不匹配。
+
+See also: `unirl/train/stack/base.py`（由 `unirl.train.stack` 导出）、`unirl/config/`。
 
 ## 新增模型
 
@@ -37,11 +42,12 @@ Read:
 Edit:
 
 - `unirl/models/<model_name>/`
-- `examples/<domain>/<recipe>.yaml`
+- `examples/<path-under-examples>.yaml`
+- recipe 中构建模型包的 `bundle:` 和 `pipeline:` 块
 
 Check:
 
-- config registration imports
+- `bundle._target_` 构建模型模块，`pipeline._target_` 消费该共享 bundle
 - LoRA target materialization
 - rollout engine 期望的 prompt/condition contract
 
@@ -65,12 +71,13 @@ Edit:
 
 Check:
 
-- 所有 backend 输出都要转换成 canonical `RolloutResp`（`tracks[name]`）；
+- engine 契约是 `generate(sample: Sample) -> Sample`；
+- backend 输出填入 `Sample.parts` 中对应的生成 `Part`；
 - direct-vs-dedicated sync contract 通过 validation。
 
 Risk: 把 backend-specific object 直接穿过 rollout/training 边界。
 
-See also: `unirl/types/rollout_req.py`、`unirl/types/rollout_resp.py`。
+See also: `unirl/types/sample.py`。
 
 ## 新增或调试 Weight Sync
 
@@ -83,7 +90,7 @@ Read:
 Edit:
 
 - `unirl/distributed/weight_sync/`
-- 选择或调优 backend 时更新 `examples/<domain>/<recipe>.yaml`
+- 选择或调优 backend 时更新 `examples/<path-under-examples>.yaml`
 
 Check:
 
@@ -117,7 +124,8 @@ Check:
 
 Risk: 修改 sigma schedule 或 log-prob 行为，但没有同步 rollout/replay 假设。
 
-See also: `unirl/types/sampling.py`、`unirl/types/rollout_resp.py`、`unirl/algorithms/diffusion_grpo.py`。
+See also: `unirl/types/sampling.py`、`unirl/types/sample.py`、
+`unirl/algorithms/flowgrpo.py`。
 
 ## 新增 Reward
 
@@ -146,7 +154,7 @@ See also: `unirl/reward/local/base.py`、`unirl/types/reward.py`。
 先运行：
 
 ```bash
-python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
+python -m unirl.train_<owner> --config-name=<path-under-examples> --cfg job --resolve
 ```
 
 然后按顺序看：

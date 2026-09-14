@@ -1,0 +1,54 @@
+name: Docs Check
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-check.yml"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    env:
+      UNIRL_SOURCE_ROOT: ${{ github.workspace }}/unirl-source
+      UNIRL_SYNC_STRICT: "1"
+    steps:
+      - name: Checkout docs site
+        uses: actions/checkout@v4
+
+      - name: Checkout framework source of truth
+        uses: actions/checkout@v4
+        with:
+          repository: Tencent-Hunyuan/UniRL
+          path: unirl-source
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: docs/.nvmrc
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check generated pages and authored content
+        run: npm run docs:check
+
+      - name: Typecheck
+        run: npm run ci:typecheck
+
+      - name: Build static site
+        run: npm run ci:build

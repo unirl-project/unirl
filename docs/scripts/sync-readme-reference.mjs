@@ -130,6 +130,27 @@ function stripTopLevelHeading(markdown) {
   return markdown.replace(/^# .*(?:\r?\n){1,2}/, "");
 }
 
+function transformOutsideCode(markdown, transform) {
+  const protectedCode = [];
+  const protect = (value) => {
+    const token = `\u0000UNIRL_CODE_${protectedCode.length}\u0000`;
+    protectedCode.push(value);
+    return token;
+  };
+
+  let protectedMarkdown = markdown.replace(
+    /^ {0,3}(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?^ {0,3}\1[ \t]*(?=\r?$)/gm,
+    protect,
+  );
+  protectedMarkdown = protectedMarkdown.replace(/(`+)([\s\S]*?)\1/g, protect);
+
+  const transformed = transform(protectedMarkdown);
+  return transformed.replace(
+    /\u0000UNIRL_CODE_(\d+)\u0000/g,
+    (_match, index) => protectedCode[Number(index)],
+  );
+}
+
 function rewriteRelativeMarkdownLinks(entry, markdown) {
   const sourceDir = path.posix.dirname(entry.source);
   const sourceBase = entry.siteLocal ? docsBlobBase : frameworkBlobBase;
@@ -177,8 +198,10 @@ function rewriteMdxIncompatibleMarkup(entry, markdown) {
 }
 
 function renderPage(entry, body) {
-  const rewritten = rewriteRelativeMarkdownLinks(entry, body);
-  const content = stripTopLevelHeading(rewriteMdxIncompatibleMarkup(entry, rewritten)).trim();
+  const rewritten = transformOutsideCode(body, (markdown) =>
+    rewriteMdxIncompatibleMarkup(entry, rewriteRelativeMarkdownLinks(entry, markdown)),
+  );
+  const content = stripTopLevelHeading(rewritten).trim();
   const sourceBase = entry.siteLocal ? docsBlobBase : frameworkBlobBase;
   const sourceUrl = `${sourceBase}/${entry.source}`;
 

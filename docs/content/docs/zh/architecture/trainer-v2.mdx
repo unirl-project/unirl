@@ -9,7 +9,8 @@ UniRL 运行在一套 trainer 架构上：single-controller 的 `Remote` / `plac
 
 ## 入口与 trainer
 
-每个领域有自己的 Hydra 入口和 `<Domain>Trainer`（`unirl/trainer/`），驱动方式一致：
+每个领域有自己的 Hydra 入口和 `<Domain>Trainer`（`unirl/trainer/`）。它们共享构建工具和
+train-side 契约，但生命周期和 placement 布局并不相同：
 
 | 入口 | Trainer | 领域 |
 |---|---|---|
@@ -22,12 +23,33 @@ UniRL 运行在一套 trainer 架构上：single-controller 的 `Remote` / `plac
 | `python -m unirl.train_unified_model` | `trainer/unified_model.py` | HunyuanImage3（AR + diffusion 混合） |
 | `python -m unirl.train_agentic` | `trainer/agentic.py` | 由 service 打分的 agentic tool use |
 
-共享生命周期在 `trainer/base.py`：申请 Ray `DevicePool`，在 placement 块里构建 rollout 与
-train worker，然后跑 rollout → reward → advantage → train → 可选 weight-sync 循环。
+`trainer/base.py` 负责 Ray `DevicePool`、checkpoint、logging 和 transport cleanup
+等共享设施。具体 trainer 各自负责 worker、placement 块和阶段顺序。
 
-## Runtime 模型
+## 生命周期与 placement
 
-trainer 打开一个 placement 块，把每个组件实例化为 sibling `Remote`，并以 handle 互相传入：
+- **同步 AR** 使用一个覆盖全池的 placement。direct rollout 共享 train pipeline；
+  colocated dedicated engine 则增加 weight sync 和分阶段 offload/onload。
+- **同步 diffusion** 可按 `layout` 选择 colocated placement，或彼此独立的 train/rollout
+  placement；`reward_fraction > 0` 时还会建立第三个 reward placement。
+- **SFT** 在一个 placement 中构建 bundle、pipeline、backend、监督算法、stack 和
+  track builder。其生命周期是 `records → build Part → train_track`，没有 rollout、
+  reward、advantage 或 weight sync。
+- **异步 AR 和异步 diffusion** 恰好使用两个彼此独立的 placement slab：train slab
+  （包含 reward、algorithm、stack 和 sync sender）以及常驻的 dedicated rollout engine。
+  manager 缓存完成的 `Sample`，并在显式 barrier 发布带版本的权重。
+- **PE** 在一个 placement 中放置 AR 和 diffusion 两侧。每个可训练侧都有各自的
+  bundle、pipeline、backend、algorithm 和 `TrainStack`；`freeze_llm` 时 AR 侧仅用于
+  rollout。composed rollout 生成有序的 AR 与 diffusion Part，随后做 reward propagation、
+  每 Part advantage 和兄弟 stack 更新。
+- **Unified model** 共享一个 bundle/backend，并用 `UnifiedModelTrainStack` 在同一
+  backbone 上处理 AR + image loss。rollout 可以是一个 engine，也可以是一对 AR/DiT
+  engine；它不是 PE 的兄弟 stack 拓扑。
+- **Agentic** 使用一个 colocated placement，并要求 dedicated engine 和
+  `TensorWeightSync`。它通过 `RolloutManager` 执行 barrier batch，给 terminal answer
+  打分，把一个 group advantage 分配给每个生成的 assistant Part，再拼接这些 Part 训练。
+
+常见的单 stage colocated RL 接线如下：
 
 ```text
 <Domain>Trainer(num_devices, batch_size, ...cfg blocks...)
@@ -44,7 +66,9 @@ trainer 打开一个 placement 块，把每个组件实例化为 sibling `Remote
 
 single-controller 层（`unirl/distributed/group/`：`Remote`、`placement`、`RankInfo`）携带
 `DP / TP / PP / SP / EP` rank 信息，后续并行工作（长序列的 SP、MoE 的 EP）正是接到这里。
-`trainside` recipe 共享被训练模块（无 `sync`）；dedicated engine 在 `sync` 下挂一个 weight-sync bridge。
+该示意不适用于 SFT、双 slab 异步 trainer、PE、unified-model 或带 reward slab 的
+diffusion。`trainside` recipe 共享被训练模块（无 `sync`）；dedicated engine 在 `sync`
+下挂一个 weight-sync bridge。
 
 ## FSDP backend 与训练栈
 
@@ -53,12 +77,14 @@ single-controller 层（`unirl/distributed/group/`：`Remote`、`placement`、`R
 - **`FSDPBackend`**（`unirl/train/backend/fsdp/backend.py`）持有可训练模型：在 FSDP2 wrap 之前做结构注入
   （LoRA / NFT / mirror EMA），加上 optimizer、LR scheduler、EMA shadow、eval-EMA 切换、
   checkpoint 和 onload/offload。
-- **`TrainStack`**（`unirl/train/stack.py`）负责 loss/backward 排序。它持有一个 `FSDPBackend`
-  和一个 `StageAlgorithm` 的 handle，对每个 rollout track 运行
+- **`TrainStack`** 实现在 `unirl/train/stack/base.py`，并由 `unirl.train.stack` 导出。
+  它负责 loss/backward 排序，持有一个 `FSDPBackend` 和一个 `StageAlgorithm` 的 handle，
+  对每个 rollout Part 运行
   `prepare_segment → mini-batch compute_loss_and_backward 循环 → optimizer_step`，返回 `TrainStepResult`。
 
-`TrainStack` 按设计是单 stage——一个 track、没有 track-name dict。**多 track 训练（如 PE）使用兄弟
-`TrainStack`**，每个 track 一个。HunyuanImage3 的 AR + diffusion 混合训练用 `unified_model_stack.py`（多 stage 变体）。
+`TrainStack` 按设计是单 stage——一个 Part、没有 part-name dict。**PE 为每个可训练的生成
+Part 使用一个兄弟 `TrainStack`**。HunyuanImage3 的 AR + diffusion 混合训练用
+`unified_model_stack.py`（多 stage 变体）。
 
 `num_updates_per_batch > 1` 会在一个 rollout shard 上跑多次 PPO mini-batch 更新，
 π_old 由 `prepare_segment` 冻结一次；该能力由 `StageAlgorithm.supports_multi_update` 控制。
@@ -74,6 +100,16 @@ single-controller 层（`unirl/distributed/group/`：`Remote`、`placement`、`R
 实例化各 sibling（没有 Hydra config-group 覆盖）：
 
 ```yaml
+bundle:
+  _target_: unirl.models.sd3.bundle.SD3Bundle.from_config
+  config:
+    _target_: unirl.models.sd3.config.SD3PipelineConfig
+    pretrained_model_ckpt_path: ${oc.env:PRETRAINED_MODEL}
+
+pipeline:
+  _target_: unirl.models.sd3.pipeline.SD3Pipeline
+  shift: 3.0
+
 backend:
   _target_: unirl.train.backend.fsdp.FSDPBackend
   block_class_names: ["JointTransformerBlock"]

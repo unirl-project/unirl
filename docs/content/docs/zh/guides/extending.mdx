@@ -9,32 +9,34 @@ description: 新增模型、rollout engine、train-side algorithm、reward、tra
 
 | 目标 | 主要位置 | recipe 如何连接 |
 |---|---|---|
-| 新增模型 | `unirl/models/<model_name>/` | 用 `@dataclass` 定义 config，在 recipe 的 `model:` 块用 `_target_` 引用 |
+| 新增模型 | `unirl/models/<model_name>/` | 在 `bundle:` 和 `pipeline:` 下配置 `_target_`；pipeline 接收共享 bundle |
 | 新增 rollout engine | `unirl/rollout/engine/<engine>/` | 用 `@dataclass` 定义 config，在 `rollout:` 下用 `_target_` 引用 |
 | 新增 train-side algorithm | `unirl/algorithms/` | 一个 `BaseAlgorithmConfig` 子类，用 `_target_` 引用并绑定到某 track 的 `algorithm:` 节点 |
 | 新增 reward scorer | `unirl/reward/local/` | 一个 spec `@dataclass`，在 `reward.backend.config` 下用 `_target_` 引用 |
 | 新增 training backend | `unirl/train/backend/` | `Remote` backend 契约（与 `FSDPBackend` 并列） |
-| 新增 recipe | `examples/<domain>/<recipe>.yaml` | `--config-name=<domain>/<recipe>` |
+| 新增 recipe | `examples/<path-under-examples>.yaml` | `python -m unirl.train_<owner> --config-name=<path-under-examples>` |
 
 ## 新增模型
 
 1. 添加 `unirl/models/<model_name>/`。
-2. 在旁边用 `@dataclass` 定义模型的 config（recipe 用 `_target_` 引用）。
-3. 实现 bundle，暴露训练和 rollout 需要的 stage。
-4. 按需添加 condition、text/vision、diffusion、VAE helper。
-5. 添加至少一个 `examples/<domain>/<recipe>.yaml` recipe。
+2. 在旁边用 `@dataclass` 定义模型 config。
+3. 实现 bundle，暴露训练和 rollout 需要的可训练及冻结模块。
+4. 实现消费该 bundle 的 pipeline，暴露可训练 stage 和 sampling path。
+5. 在至少一个 `examples/<path-under-examples>.yaml` recipe 中同时配置
+   `bundle:` 与 `pipeline:`。
 
 ## 新增 Rollout Engine
 
 1. 在 `unirl/rollout/engine/<engine>/` 下添加 typed config。
 2. 在 recipe 的 `rollout:` 块用 `_target_` 引用它。
 3. 实现 `unirl/rollout/engine/base.py` 中的 contract。
-4. 返回 canonical `RolloutResp`（填充 `tracks[name]`）。
+4. 实现 `generate(sample: Sample) -> Sample`，填充 `Sample.parts` 中对应的生成 `Part`。
 5. 如果是 dedicated engine，还要定义 trainer-to-rollout weight sync。
 
 ## 新增 Train-Side Algorithm
 
-训练 loss 是每 track 一个 `StageAlgorithm`。只有当 loss 数学改变时才新增类（DanceGRPO / MixGRPO 这类 recipe 组合复用 `DiffusionGRPO`）。
+生成 Part 的训练 loss 由 `StageAlgorithm` 负责。只有当 loss 数学改变时才新增类
+（DanceGRPO / MixGRPO 这类 recipe 组合复用 `FlowGRPO`；自回归 GRPO 使用 `GRPO`）。
 
 1. 继承 `StageAlgorithm`（`unirl/algorithms/base.py`）。
 2. 在旁边定义继承 `BaseAlgorithmConfig` 的 config（普通 `@dataclass`）。

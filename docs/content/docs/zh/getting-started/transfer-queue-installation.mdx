@@ -57,7 +57,7 @@ TQ 的运行时依赖大多 UniRL 已具备（`ray[default]`、`hydra-core`、`n
 只需补装少数尚未提供的依赖——注意 **`numpy<2.0.0`** 上限：
 
 ```bash
-pip install "tensordict>=0.10.0" pyzmq msgspec psutil
+pip install "numpy<2.0.0" "tensordict>=0.10.0" pyzmq msgspec psutil
 ```
 
 ### 验证
@@ -134,9 +134,13 @@ ls /sys/class/infiniband           # UniRL 从这里自动发现 device_name
 
 UniRL 会自动发现 `device_name`（来自 `/sys/class/infiniband` 的 RDMA bond 逗号列表），并设置
 `MC_ENABLE_DEST_DEVICE_AFFINITY=1`，让每个进程绑定与其 GPU 的 PIX 距离最近的 HCA——**通常无需自己
-设置 `device_name`**。只在排障时 override：`transfer_queue.device_name=mlx5_0`。没有 RDMA fabric？
-用 `transfer_queue.protocol=tcp` 回退（更慢）。若启动时报 *"no InfiniBand device found under
-/sys/class/infiniband"*，说明主机没有可用的 RDMA 网卡。
+设置 `device_name`**。只在排障时 override：`transfer_queue.device_name=mlx5_0`。
+
+`MooncakeBackendConfig` 虽然接受 `protocol: tcp`，但当前 UniRL runtime **不能**仅靠它在
+无 RDMA 主机上回退。Mooncake client 创建时会在初始化 storage manager 前无条件探测
+`/sys/class/infiniband` 并填充 `device_name`，不判断 `protocol`。因此，无 HCA 的主机只设置
+`transfer_queue.protocol=tcp` 仍会报 *"no InfiniBand device found"*。这类主机上的功能测试请用
+`SimpleBackend`；在 runtime 按 protocol 控制 HCA 探测前，只在支持 RDMA 的主机验证 Mooncake。
 
 ### 4.3 运行外部 Mooncake 服务（head 节点）
 
@@ -238,7 +242,7 @@ HEAD_IP=127.0.0.1 python -m unirl.train_diffusion \
 |---|---|
 | `ImportError: Mooncake Store not installed` | 把引擎（§4.1）装到**同一个** venv。 |
 | 依赖解析器拉入 `numpy>=2` | TQ 要求 `numpy<2.0.0`；固定它。 |
-| `no InfiniBand device found under /sys/class/infiniband` | 没有可用的 RDMA 网卡——换到 RDMA 主机，或设 `transfer_queue.protocol=tcp`。 |
+| `no InfiniBand device found under /sys/class/infiniband` | 当前 Mooncake client setup 即使 `protocol=tcp` 也要求发现 HCA；请换到 RDMA 主机或使用 `SimpleBackend`。 |
 | Mooncake `setup()` 在部分 rank 返回 `-800` | NUMA 不匹配的 HCA。确保 `MC_ENABLE_DEST_DEVICE_AFFINITY=1`（UniRL 会设置）且 `device_name` 为逗号列表；必要时用 `transfer_queue.device_name=` 固定。见 Mooncake [错误码](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)。 |
 | 客户端连不上 master/metadata（超时 / 拒绝） | `mooncake_master` 未运行或 host/port 错误；确保 `50051`/`50041`（或 override 后的端口）跨节点可达；设 `LOCAL_IP` 让客户端绑定可路由网卡。 |
 | 运行时找不到 `*.so`（源码编译） | `LD_LIBRARY_PATH` 必须包含 `/usr/local/lib64:/usr/local/lib`；`source ~/.bashrc`。 |

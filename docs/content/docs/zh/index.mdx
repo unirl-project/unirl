@@ -12,20 +12,20 @@ UniRL 是一个面向统一多模态生成模型的分布式强化学习框架�
 
 ## 运行训练
 
-每个领域都有自己的入口，驱动方式一致：
+每个领域都有自己的入口和 trainer 生命周期，但调用语法一致：
 
 ```bash
-python -m unirl.train_diffusion       --config-name=<recipe-path>  # diffusion 图像/视频
-python -m unirl.train_ar              --config-name=<recipe-path>  # 自回归/VLM RL
-python -m unirl.train_sft             --config-name=<recipe-path>  # supervised fine-tuning
-python -m unirl.train_async_ar        --config-name=<recipe-path>  # 异步 AR RL
-python -m unirl.train_async_diffusion --config-name=<recipe-path>  # 异步 diffusion RL
-python -m unirl.train_pe              --config-name=<recipe-path>  # prompt enhancement
-python -m unirl.train_unified_model   --config-name=<recipe-path>  # AR + diffusion 混合
-python -m unirl.train_agentic         --config-name=<recipe-path>  # agentic tool use
+python -m unirl.train_diffusion       --config-name=<path-under-examples>  # diffusion 图像/视频
+python -m unirl.train_ar              --config-name=<path-under-examples>  # 自回归/VLM RL
+python -m unirl.train_sft             --config-name=<path-under-examples>  # supervised fine-tuning
+python -m unirl.train_async_ar        --config-name=<path-under-examples>  # 异步 AR RL
+python -m unirl.train_async_diffusion --config-name=<path-under-examples>  # 异步 diffusion RL
+python -m unirl.train_pe              --config-name=<path-under-examples>  # prompt enhancement
+python -m unirl.train_unified_model   --config-name=<path-under-examples>  # AR + diffusion 混合
+python -m unirl.train_agentic         --config-name=<path-under-examples>  # agentic tool use
 ```
 
-`<recipe>` 是分桶的 `examples/` 目录树下的一个自包含 YAML 文件名（按 `<domain>/<recipe>` 寻址，不含 `.yaml`），例如：
+`<path-under-examples>` 是所选自包含 YAML 在 `examples/` 下的路径，不含 `.yaml`，例如：
 
 ```bash
 python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside
