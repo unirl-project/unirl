@@ -3,11 +3,14 @@ title: Geneval MMCV 设置
 description: Geneval/OpenMMLab workflow 所需的可选 MMCV 与 MMDetection 安装说明。
 ---
 
-这组依赖是可选的。只有当 workflow 需要 Geneval/OpenMMLab stack 时才安装。
+这组依赖是可选的 legacy 路径。只有 legacy GenEval/OpenMMLab scorer 需要它，并且必须
+在**独立 Python 3.10 sidecar 环境**中运行。不要把这套 MMCV 依赖装进 UniRL 核心
+Python 3.12 / CUDA 13 engine 环境。
 
 ## 为什么单独安装
 
-`mmcv` 和 `mmdet` 有 CUDA 编译约束，不是 UniRL 核心训练 pipeline 的必需依赖。
+`mmcv` 1.x / `mmdet` 2.x 属于较旧的 Python/PyTorch/CUDA 兼容窗口。通过 service/process
+边界隔离 scorer，才能避免它们降级或破坏核心训练环境。
 
 ## 推荐版本
 
@@ -16,9 +19,13 @@ description: Geneval/OpenMMLab workflow 所需的可选 MMCV 与 MMDetection 安
 
 ## 安装步骤
 
-示例使用 `~/mmgrpo` 作为工作目录：
+先创建并激活 Python 3.10 环境。PyTorch/CUDA 构建应匹配 sidecar 所在主机，无需与核心
+训练环境相同。
 
 ```bash
+uv venv --python 3.10 --seed .venv-geneval
+source .venv-geneval/bin/activate
+
 pip install -U openmim
 mim install mmengine
 

@@ -3,13 +3,16 @@ title: Geneval MMCV Setup
 description: Optional MMCV and MMDetection installation for Geneval/OpenMMLab workflows.
 ---
 
-This setup is optional. Only install these packages if your workflow needs the
-Geneval/OpenMMLab stack.
+This setup is optional and legacy. Run it only for the legacy
+GenEval/OpenMMLab scorer, in a **separate Python 3.10 sidecar environment**.
+Do not install this MMCV stack into UniRL's core Python 3.12 / CUDA 13 engine
+environment.
 
 ## Why separate?
 
-`mmcv`/`mmdet` have CUDA build constraints and are not required for core
-UniRL training pipelines.
+`mmcv` 1.x / `mmdet` 2.x belong to an older Python/PyTorch/CUDA compatibility
+window. Keeping the scorer behind a service/process boundary prevents those
+pins from downgrading or breaking the core environment.
 
 ## Recommended versions
 
@@ -20,9 +23,14 @@ These versions match the validated local setup used in this repository.
 
 ## Install steps
 
-Run from any working directory (examples use `~/mmgrpo`):
+Create and activate a Python 3.10 environment first. Choose a PyTorch/CUDA
+build compatible with the sidecar host; it does not need to match the core
+training environment.
 
 ```bash
+uv venv --python 3.10 --seed .venv-geneval
+source .venv-geneval/bin/activate
+
 pip install -U openmim
 mim install mmengine
 

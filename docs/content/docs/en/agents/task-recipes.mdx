@@ -10,17 +10,17 @@ Use this page as a routing table before editing the repository.
 Read:
 
 - `unirl/config/README.md`
-- closest `examples/<domain>/<recipe>.yaml`
+- closest recipe YAML under the owning `examples/` training domain
 
 Edit:
 
-- `examples/<domain>/<new_recipe>.yaml`
+- the new YAML in the same domain/model directory
 - this docs page and `/en/docs/configuration/experiments` if the recipe is maintained
 
 Check:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<new_recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
 ```
 
 Risk: mismatched placement, rollout batch size, and train-stack batch geometry.
@@ -146,7 +146,7 @@ See also: `unirl/reward/local/base.py`, `unirl/types/reward.py`.
 Start with:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
 ```
 
 Then inspect:

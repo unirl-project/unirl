@@ -12,21 +12,24 @@ must be installed into the same environment separately. See
 it differs from weight sync, and `unirl/distributed/tensor/backend/transfer_queue/` for
 the integration code (`runtime.py`, `simple.py`, `mooncake.py`, `transport.py`).
 
-UniRL wires two TQ storage backends through the Hydra `transfer_queue` config group:
+UniRL supports two inline `transfer_queue:` backend blocks:
 
 | Backend | Use when | Install effort | External services |
 |---|---|---|---|
-| **Simple** (`AsyncSimpleStorageManager`) | dev, single-node, functional testing | base TQ only | none — in-process Ray actors |
-| **Mooncake** (`MooncakeStorageManager`) | production, multi-node, zero-copy RDMA | base TQ + Mooncake engine | external `mooncake_master` + metadata server |
+| **Simple** (`SimpleBackend`) | dev, single-node, functional testing | base TQ only | none — in-process Ray actors |
+| **Mooncake** (`MooncakeBackend`) | production, multi-node, zero-copy RDMA | base TQ + Mooncake engine | external `mooncake_master` + metadata server |
 
-TQ is **off by default** (the `transfer_queue` group has no Hydra defaults entry); you opt in
-per experiment.
+TQ is off unless a recipe sets `transport_kind: transfer_queue` and provides an
+inline backend block. There is no Hydra `+transfer_queue=...` config group.
+Use `examples/diffusion/sd3/sd3_trainside_tq_mooncake.yaml` as the canonical
+working recipe.
 
 ---
 
 ## 1. Prerequisites
 
-- UniRL already installed in the target venv (`pip install -e ".[train,infer,eval]" --no-build-isolation`), Python **≥3.10**, PyTorch present. See [Installation](/en/docs/getting-started/installation).
+- UniRL already installed in one target engine venv, Python `>=3.12,<3.14`, with
+  PyTorch present. See [Installation](/en/docs/getting-started/installation).
 - Install TQ into the **same** environment.
 - **Mooncake only:** an RDMA-capable NIC (InfiniBand / RoCE) on every node, and — on TaiJi, for the from-source build — `root`.
 
@@ -74,25 +77,15 @@ reports the latest published version (e.g. `0.1.7`).
 
 ## 3. Simple backend (in-memory)
 
-No native dependencies — it spawns `SimpleStorageUnit` Ray actors (defaults: `num_units=16`,
-`unit_size=1024`). Once base TQ (§2) is installed, enable it per experiment.
-
-CLI override (the group has no default, so **append** with `+`):
-
-```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
-    +transfer_queue=simple
-```
-
-Or in your recipe YAML under `examples/<domain>/<recipe>.yaml`:
+No native dependencies — it uses in-Ray storage units. Select it with an inline
+recipe block:
 
 ```yaml
-defaults:
-  - transfer_queue: simple
-# optional overrides:
+transport_kind: transfer_queue
 transfer_queue:
-  num_units: 16
-  unit_size: 1024
+  _target_: unirl.distributed.tensor.backend.transfer_queue.simple.SimpleBackend
+  num_units: 64
+  unit_size: 16384
 ```
 
 Best for single-node runs and functional testing. For production sizing, use Mooncake.
@@ -155,42 +148,53 @@ debugging: `transfer_queue.device_name=mlx5_0`. No RDMA fabric? Fall back with
 
 ### 4.3 Run the external Mooncake services (head node)
 
-`mooncake_master` serves both the RPC master and the built-in HTTP metadata server:
+Use the repository launcher on the head node. Its defaults are metadata port
+`50041` and RPC port `50051`; if either is occupied, override it consistently
+for both the service and recipe:
 
 ```bash
-mooncake_master \
-  --rpc_port=50051 \
-  --enable_http_metadata_server=true \
-  --http_metadata_server_host=0.0.0.0 \
-  --http_metadata_server_port=8080
-# inside a container, add --rpc_interface=eth0 to bind the routable IPv4
+export HEAD_IP=10.0.0.1
+export TQ_MC_METADATA_SERVER_PORT=50041
+export TQ_MC_RPC_PORT=50051
+bash examples/mooncake_master.sh start
+bash examples/mooncake_master.sh status
 ```
 
 This yields the two endpoints the client config needs:
 
 - `master_server_address` → `<head_ip>:50051`
-- `metadata_server` → `http://<head_ip>:8080/metadata`
+- `metadata_server` → `http://<head_ip>:50041/metadata`
 
-Keep it running for the duration of training. The built-in HTTP metadata server is single-node;
-for HA use an external `etcd` instead.
+Keep it running for the duration of training, then run
+`bash examples/mooncake_master.sh stop`.
 
 ### 4.4 Wire the UniRL config
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
-    +transfer_queue=mooncake \
-    transfer_queue.metadata_server=http://<head_ip>:8080/metadata \
-    transfer_queue.master_server_address=<head_ip>:50051 \
-    transfer_queue.protocol=rdma \
-    transfer_queue.global_segment_size_gb=64 \
-    transfer_queue.local_buffer_size_gb=10
+HEAD_IP=10.0.0.1 \
+bash examples/run_experiment_single_node.sh \
+  diffusion/sd3/sd3_trainside_tq_mooncake
 ```
 
-Fields (defined in `unirl/distributed/tensor/backend/transfer_queue/mooncake.py`):
+That recipe contains the canonical inline block:
+
+```yaml
+transport_kind: transfer_queue
+transfer_queue:
+  _target_: unirl.distributed.tensor.backend.transfer_queue.mooncake.MooncakeBackend
+  metadata_server: http://${oc.env:HEAD_IP}:${oc.env:TQ_MC_METADATA_SERVER_PORT,50041}/metadata
+  master_server_address: ${oc.env:HEAD_IP}:${oc.env:TQ_MC_RPC_PORT,50051}
+  protocol: rdma
+  global_segment_size_gb: 64
+  local_buffer_size_gb: 10
+```
+
+Fields are defined in
+`unirl/distributed/tensor/backend/transfer_queue/mooncake.py`:
 
 | Field | Default | Notes |
 |---|---|---|
-| `metadata_server` | — (**required**) | `http://<head_ip>:8080/metadata` from §4.3 |
+| `metadata_server` | — (**required**) | `http://<head_ip>:50041/metadata` from §4.3 |
 | `master_server_address` | — (**required**) | `<head_ip>:50051` from §4.3 |
 | `protocol` | `rdma` | `rdma` or `tcp` |
 | `global_segment_size_gb` | `64` | total upstream segment pool |
@@ -207,6 +211,8 @@ Fields (defined in `unirl/distributed/tensor/backend/transfer_queue/mooncake.py`
 |---|---|---|
 | `TQ_ZERO_COPY_SERIALIZATION` | you | TQ serialization mode (`True`/`False`) |
 | `TQ_LOGGING_LEVEL` | you | TQ log verbosity (default `WARN`) |
+| `TQ_MC_METADATA_SERVER_PORT` | you (optional) | metadata port shared by the launcher and recipe; default `50041` |
+| `TQ_MC_RPC_PORT` | you (optional) | RPC port shared by the launcher and recipe; default `50051` |
 | `LOCAL_IP` | you (optional) | routable IP each Mooncake client binds; else auto from hostname |
 | `MOONCAKE_WORKDIR` | you (optional) | where `install_mooncake.sh` builds (default `/dockerdata/data/Mooncake`) |
 | `GITHUB_PROXY`, `http_proxy`, `https_proxy` | you (TaiJi) | proxies for the source build |
@@ -224,17 +230,14 @@ Fields (defined in `unirl/distributed/tensor/backend/transfer_queue/mooncake.py`
 python -c "import transfer_queue; print(transfer_queue.__version__)"
 python -c "from mooncake.store import MooncakeDistributedStore; print('mooncake ok')"   # Mooncake only
 
-# Simple-backend smoke test (no native deps)
-python -m unirl.train_diffusion --config-name=<small_recipe> +transfer_queue=simple
-
-# Standalone TQ sanity (from the TransferQueue checkout — see the repo's
-# recipe/simple_use_case/ and tutorial/ directories for the current demo files)
-python recipe/simple_use_case/single_controller_demo.py
-pytest                              # CPU test suite
+# Canonical recipe compose check
+HEAD_IP=127.0.0.1 python -m unirl.train_diffusion \
+  --config-name=diffusion/sd3/sd3_trainside_tq_mooncake \
+  --cfg job --resolve
 ```
 
 For Mooncake, the full RDMA path must be validated on a **TaiJi GPU pod**: start
-`mooncake_master`, launch training with `+transfer_queue=mooncake` (§4.4), and confirm there is
+`examples/mooncake_master.sh`, launch the canonical recipe (§4.4), and confirm there is
 no `ImportError`/`-800` and that rollout→train data flows.
 
 ---
@@ -247,7 +250,7 @@ no `ImportError`/`-800` and that rollout→train data flows.
 | Dependency resolver pulls `numpy>=2` | TQ requires `numpy<2.0.0`; pin it. |
 | `no InfiniBand device found under /sys/class/infiniband` | No usable RDMA NIC — run on an RDMA host or set `transfer_queue.protocol=tcp`. |
 | Mooncake `setup()` returns `-800` on some ranks | Wrong-NUMA HCA. Ensure `MC_ENABLE_DEST_DEVICE_AFFINITY=1` (UniRL sets it) and a comma-list `device_name`; pin with `transfer_queue.device_name=` if needed. See Mooncake [error codes](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html). |
-| Client cannot reach master/metadata (timeout / refused) | `mooncake_master` not running or wrong host/port; ensure `50051`/`8080` are reachable across nodes; set `LOCAL_IP` so clients bind the routable interface. |
+| Client cannot reach master/metadata (timeout / refused) | `mooncake_master` not running or wrong host/port; ensure `50051`/`50041` (or your overrides) are reachable across nodes; set `LOCAL_IP` so clients bind the routable interface. |
 | `*.so` not found at runtime (source build) | `LD_LIBRARY_PATH` must include `/usr/local/lib64:/usr/local/lib`; `source ~/.bashrc`. |
 | Wheel import crashes with glibc/ABI error | Build from source via `install_mooncake.sh` (§4.1). |
 

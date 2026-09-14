@@ -8,11 +8,13 @@ description: Prompt 数据契约、本地数据集、模型代码包和 checkpoi
 用户数据以 prompt 为核心。已提交的 prompt 列表在 `datasets/` 下（如 `datasets/pickscore/train.txt`），更大的数据集建议挂载或 symlink 到 `datasets/`，并通过 `DATA_PATH` 或 recipe 的 `data_source` 块传入：
 
 ```bash
-DATA_PATH=/abs/path/train.json \
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside \
+  data_source.args.run.data_path=/abs/path/train.json
 ```
 
 prompt 文件格式和单条 prompt schema 见 [数据准备](/zh/docs/guides/data-preparation)。
+仓库内转换器使用 `dataset-prep` extra；输出 schema 与 canonical 训练 recipe 以最近的
+`datasets/<name>/README.md` 为准。
 
 ## 模型代码
 

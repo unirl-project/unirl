@@ -3,7 +3,7 @@ title: Multinode Runs
 description: Launchers, Ray startup, cluster geometry, and pre-run checks.
 ---
 
-Training semantics live in `examples/<domain>/*.yaml`. Shell scripts only prepare the runtime
+Training semantics live in recipe YAML under `examples/`. Shell scripts only prepare the runtime
 environment, start Ray, set path/logging defaults, and forward the recipe name
 plus Hydra overrides.
 
@@ -12,19 +12,29 @@ plus Hydra overrides.
 Use the single-node launcher for local or one-node jobs, and the multinode
 launcher when workers need to join a Ray head before training starts. The first
 argument is a bucketed recipe name (`<domain>/<recipe>`); `ENTRY` selects a non-diffusion
-entrypoint (`train_vlm`, `train_pe`, `train_unified_model`).
+entrypoint (`train_ar`, `train_sft`, `train_async_ar`,
+`train_async_diffusion`, `train_pe`, `train_unified_model`, or
+`train_agentic`).
 
 ```bash
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
-bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate
-ENTRY=train_vlm bash examples/run_experiment_multinode_taiji.sh vlm/qwen_vl_argrpo_geo3k_mc_sglang_4x8
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside
+bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_colocate
+ENTRY=train_ar bash examples/run_experiment_multinode.sh ar/qwen_vl_grpo_geo3k_mc_sglang_4x8
+ENTRY=train_sft bash examples/run_experiment_multinode.sh sft/qwen3_sft
+ENTRY=train_agentic bash examples/run_experiment_multinode.sh deep_research/deep_research_search_judge
 ```
+
+The launcher defaults to scheduler-fanned `LAUNCH=spmd`. For an interactive
+head node with passwordless SSH to workers, set `LAUNCH=ssh` and provide
+`NODE_IP_LIST=IP:GPUS,...`. `NUM_NODES`, `GPUS_PER_NODE`, `NODE_RANK`,
+`HEAD_IP`, and `RAY_PORT` override topology discovery.
 
 ## Environment-Derived Overrides
 
-Generic launchers set path and logging values from environment variables
-(`PRETRAINED_MODEL`, `DATA_PATH`, `EVAL_DATA_PATH`, `OUTPUT_DIR`, and the W&B
-knobs). Model checkpoint env vars remain recipe-specific.
+Launchers preserve the environment; each recipe decides which values it
+interpolates (commonly `PRETRAINED_MODEL`, data paths, and W&B settings).
+Inspect the selected YAML instead of assuming every recipe reads the same
+variables.
 
 ## Cluster Geometry
 
@@ -33,7 +43,7 @@ fields together, for example the device count and the train-stack mini-batch
 shape:
 
 ```bash
-bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate \
+bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_colocate \
   num_devices=16 \
   stack.micro_batch_size=1 \
   stack.num_updates_per_batch=2
@@ -47,5 +57,7 @@ always run a compose check first.
 For any large run, first compose and resolve the recipe without launching Ray work:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve
+python -m unirl.train_diffusion \
+  --config-name=diffusion/sd3/sd3_sglang_rollout_colocate \
+  --cfg job --resolve
 ```

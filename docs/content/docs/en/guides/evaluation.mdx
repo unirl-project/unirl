@@ -1,13 +1,7 @@
 ---
 title: Evaluation
-description: How quality is measured today (reward scores), the eval plumbing that exists, and what is not wired yet.
+description: Periodic trainer evaluation, reward suites, and external benchmarks.
 ---
-
-> **Status.** There is no automatic periodic evaluation loop in the training
-> driver yet. Periodic eval is a deferred follow-up. Today, the in-training
-> quality signal is the **reward score**, and offline benchmarking is done with
-> external tools. This page documents what exists so you do not assume a harness
-> that is not wired.
 
 ## Quality Signal During Training
 
@@ -16,43 +10,42 @@ Each rollout scores generated media and logs per-sample and per-component reward
 (visible in WandB when enabled). Built-in scorers under `unirl/reward/local/`
 include PickScore, HPS, OCR, GenEval2, VideoPickScore, and rule-based matchers.
 
-To "evaluate" a checkpoint or recipe today, read the reward curves and
-per-component breakdown. See [Rewards](/en/docs/guides/rewards) for configuration
-and the generated
+See [Rewards](/en/docs/guides/rewards) for configuration and the generated
 [Reward Package README](/en/docs/guides/readme-reward-package).
 
-## Eval Plumbing (currently inert)
+## Periodic Evaluation
 
-The configuration surface for a separate eval set already exists, but the driver
-does not call it yet:
+Periodic evaluation is implemented for diffusion, AR, and SFT trainers. Set
+`eval_interval` above zero in the recipe; `0` disables it.
 
-- `EVAL_DATA_PATH` → `run.eval_data_path` selects a separate eval prompt file,
-  loaded in deterministic (unshuffled) order. If unset, it falls back to
-  `run.data_path`.
-- `cfg.evaluation.eval_steps` is present in some recipes (for example WAN and
-  `qwen_vl_argrpo_geo3k_mc_4x8`), and many SD3 recipes set it to `0`.
+- `data_source.args.run.eval_data_path` selects a deterministic, unshuffled eval
+  source. Recipes commonly interpolate `EVAL_DATA_PATH`.
+- Diffusion/AR use `eval_num_prompts` and evaluation-specific sampling knobs.
+  Diffusion also supports chunking and `eval_rewards`, a list of extra reward
+  suites that may share the default eval set or specify their own.
+- SFT uses `eval_batch_size` and `eval_num_samples`; `-1` evaluates the complete
+  eval set.
+- Evaluation runs at step/rollout zero and at the configured cadence where the
+  trainer supports it. Async trainers drain to a synchronized empty-rollout
+  boundary before evaluating.
 
-These feed helpers (`get_eval_samples`, `build_eval_request_batch`,
-`should_eval`, `run_eval_pipeline`, `log_eval`) that are implemented but have no
-driver callers today. Treat them as
-forward-looking until a periodic-eval hook lands.
+Use the selected recipe as the exact source of truth because available knobs
+differ by trainer.
 
 ## Offline / External Benchmarks
 
-For benchmark-style evaluation (for example GenEval), use the external
-OpenMMLab stack. It is intentionally not a default dependency; setup is in
-[Geneval MMCV Setup](/en/docs/guides/geneval-mmcv-setup). There is no in-repo
-GenEval or FID harness.
+The `[eval]` extra installs the current OCR reward dependencies: PaddlePaddle,
+PaddleOCR, torchvision, and Levenshtein support. It is not a general benchmark
+harness.
 
-The `[eval]` install extra adds `torchvision` and `easyocr`. Note OCR scoring
-actually uses `paddleocr` (installed separately) and `easyocr` is currently
-unused; `[eval]` is not a separate evaluation framework.
+The legacy GenEval/OpenMMLab scorer must run as a Python 3.10 sidecar, separate
+from the core Python 3.12 / CUDA 13 engine environment. Follow
+[Geneval MMCV Setup](/en/docs/guides/geneval-mmcv-setup); do not install its
+MMCV stack into a core training environment.
 
 ## If You Need Eval Now
 
-- Reuse a reward scorer as a metric: run the recipe with the target reward
-  component and read its logged values.
+- Enable the trainer's periodic eval fields and read `eval/*` metrics in W&B.
+- Add an `eval_rewards` suite when diffusion eval needs additional scorers.
 - Or score generated media offline with the standalone reward service in
   `unirl-reward-service/`.
-- Track the eval-loop work on the [Roadmap](/en/docs/architecture/roadmap)
-  (UI / observability and benchmark tracks).

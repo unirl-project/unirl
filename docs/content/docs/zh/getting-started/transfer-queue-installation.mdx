@@ -10,20 +10,23 @@ description: 可选的 rollout→trainer 数据面总线（Simple 与 Mooncake �
 `unirl/distributed/weight_sync/README.md`（"Transfer Queue — Separate Concern"）；集成代码位于
 `unirl/distributed/tensor/backend/transfer_queue/`（`runtime.py`、`simple.py`、`mooncake.py`、`transport.py`）。
 
-UniRL 通过 Hydra `transfer_queue` 配置组接入两种 TQ 存储 backend：
+UniRL 支持两种 recipe 内联 `transfer_queue:` backend：
 
 | Backend | 适用场景 | 安装成本 | 外部服务 |
 |---|---|---|---|
-| **Simple**（`AsyncSimpleStorageManager`） | 开发、单节点、功能测试 | 仅需基础 TQ | 无——进程内 Ray actor |
-| **Mooncake**（`MooncakeStorageManager`） | 生产、多节点、零拷贝 RDMA | 基础 TQ + Mooncake 引擎 | 外部 `mooncake_master` + metadata server |
+| **Simple**（`SimpleBackend`） | 开发、单节点、功能测试 | 仅需基础 TQ | 无——进程内 Ray actor |
+| **Mooncake**（`MooncakeBackend`） | 生产、多节点、零拷贝 RDMA | 基础 TQ + Mooncake 引擎 | 外部 `mooncake_master` + metadata server |
 
-TQ 默认**关闭**（`transfer_queue` 组没有 Hydra defaults 条目）；按 experiment 逐个开启。
+只有 recipe 同时设置 `transport_kind: transfer_queue` 并提供内联 backend block 时才启用
+TQ；不存在 Hydra `+transfer_queue=...` 配置组。canonical 可运行 recipe 是
+`examples/diffusion/sd3/sd3_trainside_tq_mooncake.yaml`。
 
 ---
 
 ## 1. 前置条件
 
-- 目标 venv 中已安装 UniRL（`pip install -e ".[train,infer,eval]" --no-build-isolation`），Python **≥3.10**，已装 PyTorch。见 [安装](/zh/docs/getting-started/installation)。
+- 已在某一个目标 engine venv 中安装 UniRL，Python `>=3.12,<3.14`，并已安装
+  PyTorch。见 [安装](/zh/docs/getting-started/installation)。
 - 把 TQ 安装到**同一个**环境。
 - **仅 Mooncake：** 每个节点都需要支持 RDMA 的网卡（InfiniBand / RoCE）；在 TaiJi 上做源码编译时还需要 `root`。
 
@@ -70,25 +73,14 @@ python -c "import transfer_queue; print(transfer_queue.__version__)"
 
 ## 3. Simple backend（内存）
 
-无原生依赖——它会拉起 `SimpleStorageUnit` Ray actor（默认 `num_units=16`、`unit_size=1024`）。
-装好基础 TQ（§2）后，按 experiment 开启。
-
-CLI override（该组没有默认值，所以用 `+` **追加**）：
-
-```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
-    +transfer_queue=simple
-```
-
-或在 recipe YAML `examples/<domain>/<recipe>.yaml` 中：
+无原生依赖，使用 in-Ray storage unit。通过 recipe 内联 block 选择：
 
 ```yaml
-defaults:
-  - transfer_queue: simple
-# 可选 override：
+transport_kind: transfer_queue
 transfer_queue:
-  num_units: 16
-  unit_size: 1024
+  _target_: unirl.distributed.tensor.backend.transfer_queue.simple.SimpleBackend
+  num_units: 64
+  unit_size: 16384
 ```
 
 最适合单节点运行和功能测试。生产规模请用 Mooncake。
@@ -148,41 +140,50 @@ UniRL 会自动发现 `device_name`（来自 `/sys/class/infiniband` 的 RDMA bo
 
 ### 4.3 运行外部 Mooncake 服务（head 节点）
 
-`mooncake_master` 同时提供 RPC master 和内置 HTTP metadata server：
+在 head 节点使用仓库启动器。默认 metadata 端口为 `50041`、RPC 端口为 `50051`；
+如端口被占用，必须让服务与 recipe 使用相同 override：
 
 ```bash
-mooncake_master \
-  --rpc_port=50051 \
-  --enable_http_metadata_server=true \
-  --http_metadata_server_host=0.0.0.0 \
-  --http_metadata_server_port=8080
-# 在容器内，追加 --rpc_interface=eth0 以绑定可路由的 IPv4
+export HEAD_IP=10.0.0.1
+export TQ_MC_METADATA_SERVER_PORT=50041
+export TQ_MC_RPC_PORT=50051
+bash examples/mooncake_master.sh start
+bash examples/mooncake_master.sh status
 ```
 
 由此得到客户端配置所需的两个端点：
 
 - `master_server_address` → `<head_ip>:50051`
-- `metadata_server` → `http://<head_ip>:8080/metadata`
+- `metadata_server` → `http://<head_ip>:50041/metadata`
 
-训练期间保持运行。内置 HTTP metadata server 是单节点的；要做 HA 请改用外部 `etcd`。
+训练期间保持运行，结束后执行 `bash examples/mooncake_master.sh stop`。
 
 ### 4.4 接线 UniRL 配置
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
-    +transfer_queue=mooncake \
-    transfer_queue.metadata_server=http://<head_ip>:8080/metadata \
-    transfer_queue.master_server_address=<head_ip>:50051 \
-    transfer_queue.protocol=rdma \
-    transfer_queue.global_segment_size_gb=64 \
-    transfer_queue.local_buffer_size_gb=10
+HEAD_IP=10.0.0.1 \
+bash examples/run_experiment_single_node.sh \
+  diffusion/sd3/sd3_trainside_tq_mooncake
 ```
 
-字段（定义于 `unirl/distributed/tensor/backend/transfer_queue/mooncake.py`）：
+该 recipe 包含 canonical 内联配置：
+
+```yaml
+transport_kind: transfer_queue
+transfer_queue:
+  _target_: unirl.distributed.tensor.backend.transfer_queue.mooncake.MooncakeBackend
+  metadata_server: http://${oc.env:HEAD_IP}:${oc.env:TQ_MC_METADATA_SERVER_PORT,50041}/metadata
+  master_server_address: ${oc.env:HEAD_IP}:${oc.env:TQ_MC_RPC_PORT,50051}
+  protocol: rdma
+  global_segment_size_gb: 64
+  local_buffer_size_gb: 10
+```
+
+字段定义于 `unirl/distributed/tensor/backend/transfer_queue/mooncake.py`：
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `metadata_server` | —（**必填**） | 来自 §4.3 的 `http://<head_ip>:8080/metadata` |
+| `metadata_server` | —（**必填**） | 来自 §4.3 的 `http://<head_ip>:50041/metadata` |
 | `master_server_address` | —（**必填**） | 来自 §4.3 的 `<head_ip>:50051` |
 | `protocol` | `rdma` | `rdma` 或 `tcp` |
 | `global_segment_size_gb` | `64` | 上游段池总量 |
@@ -199,6 +200,8 @@ python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
 |---|---|---|
 | `TQ_ZERO_COPY_SERIALIZATION` | 你 | TQ 序列化模式（`True`/`False`） |
 | `TQ_LOGGING_LEVEL` | 你 | TQ 日志级别（默认 `WARN`） |
+| `TQ_MC_METADATA_SERVER_PORT` | 你（可选） | 启动器与 recipe 共用的 metadata 端口，默认 `50041` |
+| `TQ_MC_RPC_PORT` | 你（可选） | 启动器与 recipe 共用的 RPC 端口，默认 `50051` |
 | `LOCAL_IP` | 你（可选） | 每个 Mooncake 客户端绑定的可路由 IP；否则从 hostname 自动推断 |
 | `MOONCAKE_WORKDIR` | 你（可选） | `install_mooncake.sh` 的编译目录（默认 `/dockerdata/data/Mooncake`） |
 | `GITHUB_PROXY`、`http_proxy`、`https_proxy` | 你（TaiJi） | 源码编译用的代理 |
@@ -216,17 +219,15 @@ python -m unirl.train_diffusion --config-name=<domain>/<recipe> \
 python -c "import transfer_queue; print(transfer_queue.__version__)"
 python -c "from mooncake.store import MooncakeDistributedStore; print('mooncake ok')"   # 仅 Mooncake
 
-# Simple backend 冒烟测试（无原生依赖）
-python -m unirl.train_diffusion --config-name=<small_recipe> +transfer_queue=simple
-
-# TQ 独立 sanity（在 TransferQueue checkout 内——当前 demo 文件见仓库的
-# recipe/simple_use_case/ 和 tutorial/ 目录）
-python recipe/simple_use_case/single_controller_demo.py
-pytest                              # CPU 测试套件
+# Canonical recipe compose check
+HEAD_IP=127.0.0.1 python -m unirl.train_diffusion \
+  --config-name=diffusion/sd3/sd3_trainside_tq_mooncake \
+  --cfg job --resolve
 ```
 
-对于 Mooncake，完整 RDMA 链路必须在 **TaiJi GPU pod** 上验证：启动 `mooncake_master`，用
-`+transfer_queue=mooncake`（§4.4）启动训练，确认没有 `ImportError`/`-800`，并且 rollout→train
+对于 Mooncake，完整 RDMA 链路必须在 **TaiJi GPU pod** 上验证：用
+`examples/mooncake_master.sh` 启动服务，再启动 canonical recipe（§4.4），确认没有
+`ImportError`/`-800`，并且 rollout→train
 数据正常流转。
 
 ---
@@ -239,7 +240,7 @@ pytest                              # CPU 测试套件
 | 依赖解析器拉入 `numpy>=2` | TQ 要求 `numpy<2.0.0`；固定它。 |
 | `no InfiniBand device found under /sys/class/infiniband` | 没有可用的 RDMA 网卡——换到 RDMA 主机，或设 `transfer_queue.protocol=tcp`。 |
 | Mooncake `setup()` 在部分 rank 返回 `-800` | NUMA 不匹配的 HCA。确保 `MC_ENABLE_DEST_DEVICE_AFFINITY=1`（UniRL 会设置）且 `device_name` 为逗号列表；必要时用 `transfer_queue.device_name=` 固定。见 Mooncake [错误码](https://kvcache-ai.github.io/Mooncake/troubleshooting/error-code.html)。 |
-| 客户端连不上 master/metadata（超时 / 拒绝） | `mooncake_master` 未运行或 host/port 错误；确保 `50051`/`8080` 跨节点可达；设 `LOCAL_IP` 让客户端绑定可路由网卡。 |
+| 客户端连不上 master/metadata（超时 / 拒绝） | `mooncake_master` 未运行或 host/port 错误；确保 `50051`/`50041`（或 override 后的端口）跨节点可达；设 `LOCAL_IP` 让客户端绑定可路由网卡。 |
 | 运行时找不到 `*.so`（源码编译） | `LD_LIBRARY_PATH` 必须包含 `/usr/local/lib64:/usr/local/lib`；`source ~/.bashrc`。 |
 | Wheel 导入时报 glibc/ABI 错误 | 通过 `install_mooncake.sh`（§4.1）从源码编译。 |
 

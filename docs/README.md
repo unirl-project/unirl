@@ -5,19 +5,45 @@ This directory contains the Fumadocs + Next.js documentation site. It is isolate
 ## Commands
 
 ```bash
-npm install
+npm ci
+npm run docs:check
 npm run sync:readmes
 npm run dev
 npm run build
 npm run typecheck
 ```
 
-`npm run sync:readmes` regenerates the embedded package pages from the
-repository README files, writing one page per README into its owning docs
-section (under both `en` and `zh`). It also runs automatically before `dev`,
-`build`, and `typecheck`.
+`npm run docs:check` regenerates README references, runs Fumadocs MDX
+generation, and checks authored links, navigation targets, retired names, and
+documented framework paths.
+
+`npm run sync:readmes` regenerates English package-reference pages from the
+official framework README files. Chinese routes use Fumadocs' English fallback
+for these generated references instead of presenting English text as a Chinese
+translation. Sync also runs automatically before `dev`, `build`, and
+`typecheck`.
 
 `npm run build` statically exports the site to `out/`. The build also generates `.source/`, which backs the `collections/server` import used by Fumadocs MDX.
+
+## Framework source of truth
+
+Commands, package READMEs, and recipe paths come from
+[`Tencent-Hunyuan/UniRL`](https://github.com/Tencent-Hunyuan/UniRL), while this
+repository owns the Fumadocs site and GitHub Pages deployment. Point local
+validation at a current framework checkout:
+
+```bash
+export UNIRL_SOURCE_ROOT=../UniRL
+export UNIRL_SYNC_STRICT=1
+npm run docs:check
+npm run typecheck
+npm run build
+```
+
+CI and deployment check out the official framework separately and use strict
+sync. Missing configured README sources fail before generated pages are
+changed. A deliberate docs-only preview may use
+`UNIRL_SYNC_STRICT=0 npm run sync:readmes`.
 
 ## Structure
 
@@ -65,17 +91,21 @@ content/docs/zh/...
 
 English is the source of truth and fallback language. If a Chinese page is missing, Fumadocs falls back to the English source.
 
+Generated README references intentionally exist only under `content/docs/en`.
+Do not hand-edit or translate generated `readme-*.mdx` files.
+
 ## Adding Pages
 
 1. Add the English `.mdx` file under `content/docs/en/`.
 2. Add the Chinese `.mdx` file under `content/docs/zh/` when the page is intended for human Chinese readers.
 3. Add or update the nearest `meta.json` `pages` list to control sidebar order.
 4. Prefer paths and command examples that match the current repository state.
-5. Run `npm run build` before submitting changes.
+5. Export `UNIRL_SOURCE_ROOT`, then run `npm run docs:check`,
+   `npm run typecheck`, and `npm run build` before submitting changes.
 
 ## Maintenance Notes
 
 - Node `>=20.19.0` is declared because current transitive file-watcher dependencies require it. Older Node versions may still build but will warn during install.
 - `includeProcessedMarkdown` is enabled in `source.config.ts`; do not remove it unless `/llms-full.txt` and `/md/<slug>/index.md` are replaced with another Markdown source.
 - Generated directories `.next/`, `.source/`, `out/`, and `node_modules/` are ignored by the repository.
-- Generated package pages `content/docs/{en,zh}/<section>/readme-*.mdx` come from `npm run sync:readmes` and are git-ignored; edit the source README, not these files.
+- Generated package pages `content/docs/en/<section>/readme-*.mdx` come from `npm run sync:readmes` and are git-ignored; edit the source README, not these files.

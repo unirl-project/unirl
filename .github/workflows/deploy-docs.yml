@@ -21,8 +21,19 @@ jobs:
     defaults:
       run:
         working-directory: docs
+    env:
+      UNIRL_SOURCE_ROOT: ${{ github.workspace }}/unirl-source
+      UNIRL_SYNC_STRICT: "1"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout docs site
+        uses: actions/checkout@v4
+
+      - name: Checkout framework source of truth
+        uses: actions/checkout@v4
+        with:
+          repository: Tencent-Hunyuan/UniRL
+          path: unirl-source
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -32,6 +43,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Check generated pages, links, and source paths
+        run: npm run docs:check
+
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Build static site
         run: npm run build

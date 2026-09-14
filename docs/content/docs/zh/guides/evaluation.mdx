@@ -1,10 +1,7 @@
 ---
 title: 评测
-description: 目前如何衡量质量（reward 分数）、已有的 eval 接线，以及尚未接通的部分。
+description: Trainer 周期评测、reward suite 与外部 benchmark。
 ---
-
-> **当前状态。** 训练 driver 里**还没有**自动的周期性评测循环，周期 eval 是后续工作。目前训练中的质量信号是
-> **reward 分数**，离线 benchmark 用外部工具完成。本页如实说明已有部分，避免你误以为存在尚未接通的 harness。
 
 ## 训练中的质量信号
 
@@ -12,31 +9,35 @@ recipe 上配置的 reward 组件是主要质量信号。每个 rollout 对生�
 （启用 WandB 时可见）。`unirl/reward/local/` 下的内置 scorer 包括 PickScore、HPS、OCR、GenEval2、
 VideoPickScore，以及基于规则的匹配器。
 
-要"评测"一个 checkpoint 或 recipe，目前就看 reward 曲线和逐组件分解。配置见
-[Rewards](/zh/docs/guides/rewards) 与生成的
+配置见 [Rewards](/zh/docs/guides/rewards) 与生成的
 [Reward Package README](/zh/docs/guides/readme-reward-package)。
 
-## Eval 接线（当前未生效）
+## 周期评测
 
-独立 eval 集的配置表面已经存在，但 driver 还没有调用它：
+diffusion、AR 和 SFT trainer 已实现周期评测。recipe 中 `eval_interval>0` 时启用，
+设为 `0` 时关闭。
 
-- `EVAL_DATA_PATH` → `run.eval_data_path` 选择独立的 eval prompt 文件，按确定性（不 shuffle）顺序加载；
-  未设置时回退到 `run.data_path`。
-- `cfg.evaluation.eval_steps` 在部分 recipe 里存在（如 WAN 和 `qwen_vl_argrpo_geo3k_mc_4x8`），很多 SD3 recipe 设为 `0`。
+- `data_source.args.run.eval_data_path` 选择确定性、不 shuffle 的 eval 数据源；recipe
+  通常从 `EVAL_DATA_PATH` 插值。
+- Diffusion/AR 使用 `eval_num_prompts` 及各自的 eval sampling 参数。Diffusion 还支持
+  chunking 和 `eval_rewards`：额外 reward suite 可共享默认 eval set，也可配置自己的数据集。
+- SFT 使用 `eval_batch_size` 与 `eval_num_samples`；`-1` 表示完整 eval set。
+- 支持的 trainer 会在 step/rollout 0 和配置的 cadence 运行评测。Async trainer 会先 drain
+  到已同步且没有在途 rollout 的边界，再执行评测。
 
-这些会喂给已实现但当前无 driver 调用方的 helper（`get_eval_samples`、`build_eval_request_batch`、
-`should_eval`、`run_eval_pipeline`、`log_eval`）。在周期 eval hook 落地前，把它们当作前瞻性接口。
+各 trainer 的可用字段不同，精确配置以所选 recipe 为准。
 
 ## 离线 / 外部 Benchmark
 
-benchmark 式评测（如 GenEval）请用外部 OpenMMLab 栈。它刻意不是默认依赖，安装见
-[Geneval MMCV Setup](/zh/docs/guides/geneval-mmcv-setup)。仓库内没有 GenEval 或 FID harness。
+`[eval]` extra 安装当前 OCR reward 所需的 PaddlePaddle、PaddleOCR、torchvision 与
+Levenshtein 支持；它不是通用 benchmark harness。
 
-`[eval]` 安装 extra 装的是 `torchvision` 与 `easyocr`。注意 OCR 实际用的是 `paddleocr`（需单独安装），
-`easyocr` 目前未被使用；`[eval]` 不是独立的评测框架。
+legacy GenEval/OpenMMLab scorer 必须作为 Python 3.10 sidecar 运行，与核心 Python 3.12 /
+CUDA 13 engine 环境隔离。按 [Geneval MMCV 设置](/zh/docs/guides/geneval-mmcv-setup)
+安装，不要把它的 MMCV 栈装进核心训练环境。
 
 ## 如果现在就要评测
 
-- 把 reward scorer 当作指标复用：用目标 reward 组件跑 recipe，读它记录的数值。
+- 打开 trainer 的周期 eval 字段，在 W&B 中查看 `eval/*` metric。
+- Diffusion eval 需要额外 scorer 时添加 `eval_rewards` suite。
 - 或用 `unirl-reward-service/` 下的独立 reward service 对生成的 media 离线打分。
-- 在 [Roadmap 路线图](/zh/docs/architecture/roadmap) 上跟踪 eval-loop 工作（UI / 可观测性与 benchmark 线）。

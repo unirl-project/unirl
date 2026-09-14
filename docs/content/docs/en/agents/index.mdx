@@ -18,7 +18,9 @@ Do not add `/llms.txt` as a docs category. It is a root-level access path for to
 
 ## First Principles
 
-- Treat `python -m unirl.train_diffusion --config-name=<domain>/<recipe>` (and `train_vlm` / `train_pe` / `train_unified_model`) as the maintained runtime entry.
+- Use the training-domain entrypoint that owns the recipe: `train_diffusion`,
+  `train_ar`, `train_sft`, `train_async_diffusion`, `train_async_ar`,
+  `train_pe`, `train_unified_model`, or `train_agentic`.
 - Treat the bucketed `examples/<domain>/<recipe>.yaml` files as the authoritative configuration surface.
 - Treat package READMEs as local contracts near the code they describe.
 - Do not infer runtime behavior from stale scratch docs or ignored local files unless the user explicitly points to them.
@@ -38,6 +40,9 @@ Do not add `/llms.txt` as a docs category. It is a root-level access path for to
 | Work on rewards | `/en/docs/guides/rewards`, then `unirl/reward/README.md` |
 | Add or debug trainer-to-rollout weight sync | `unirl/distributed/weight_sync/README.md` |
 | Prepare prompt data | `/en/docs/guides/data-preparation` |
+| Work on SFT | `unirl/trainer/sft.py`, then the matching `examples/sft/` recipe |
+| Work on agentic tool use | `unirl/trainer/agentic.py`, then `examples/deep_research/` |
+| Work on async rollout | `unirl/trainer/async_rollout.py`, then the matching async recipe |
 | Add or mount data/model artifacts | `/en/docs/guides/data-and-models` |
 | Debug multinode runs | `/en/docs/guides/multinode` |
 

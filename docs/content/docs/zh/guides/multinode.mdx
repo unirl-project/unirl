@@ -3,28 +3,39 @@ title: 多机运行
 description: 启动器、Ray 启动、集群 geometry 和启动前检查。
 ---
 
-训练语义放在 `examples/<domain>/*.yaml`。Shell 脚本只负责准备环境、启动 Ray、设置路径/logging 默认值，并转发 recipe 名和 Hydra overrides。
+训练语义放在 `examples/` 下的 recipe YAML。Shell 脚本只负责准备环境、启动 Ray、
+设置路径/logging 默认值，并转发 recipe 名和 Hydra overrides。
 
 ## 启动器
 
-单机作业使用 single-node launcher；多机作业使用 role-aware multinode launcher，让 worker 加入 Ray head 后再训练。第一个参数是 bucket 化的 recipe 名（`<domain>/<recipe>`）；`ENTRY` 选择非 diffusion 入口（`train_vlm`、`train_pe`、`train_unified_model`）。
+单机作业使用 single-node launcher；多机作业使用 role-aware multinode launcher，让
+worker 加入 Ray head 后再训练。第一个参数是 recipe 在 `examples/` 下的路径；`ENTRY`
+选择非 diffusion 入口（`train_ar`、`train_sft`、`train_async_ar`、
+`train_async_diffusion`、`train_pe`、`train_unified_model` 或 `train_agentic`）。
 
 ```bash
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
-bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate
-ENTRY=train_vlm bash examples/run_experiment_multinode_taiji.sh vlm/qwen_vl_argrpo_geo3k_mc_sglang_4x8
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside
+bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_colocate
+ENTRY=train_ar bash examples/run_experiment_multinode.sh ar/qwen_vl_grpo_geo3k_mc_sglang_4x8
+ENTRY=train_sft bash examples/run_experiment_multinode.sh sft/qwen3_sft
+ENTRY=train_agentic bash examples/run_experiment_multinode.sh deep_research/deep_research_search_judge
 ```
+
+launcher 默认使用由调度器 fan-out 的 `LAUNCH=spmd`。若在 head 节点交互运行，且可免密
+SSH 到 worker，可设置 `LAUNCH=ssh` 并提供 `NODE_IP_LIST=IP:GPUS,...`。
+`NUM_NODES`、`GPUS_PER_NODE`、`NODE_RANK`、`HEAD_IP`、`RAY_PORT` 可覆盖自动发现。
 
 ## 环境变量 Override
 
-通用启动器会从环境变量设置路径和 logging 值（`PRETRAINED_MODEL`、`DATA_PATH`、`EVAL_DATA_PATH`、`OUTPUT_DIR` 以及 W&B 相关项）。模型 checkpoint 环境变量通常是 recipe-specific。
+启动器会保留环境；具体插值哪些值由 recipe 决定（常见的是 `PRETRAINED_MODEL`、数据路径和
+W&B 设置）。应检查所选 YAML，不要假设每个 recipe 读取相同环境变量。
 
 ## 集群 Geometry
 
 不同集群形态下，把 recipe 的 placement 和 batch-geometry 字段一起 override，例如设备数和 train-stack 的 mini-batch 形态：
 
 ```bash
-bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate \
+bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_colocate \
   num_devices=16 \
   stack.micro_batch_size=1 \
   stack.num_updates_per_batch=2
@@ -37,5 +48,7 @@ recipe 的 validators 会在 Ray work 前报告不一致的 geometry，所以务
 大作业前先 compose 并 resolve recipe，不启动 Ray work：
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve
+python -m unirl.train_diffusion \
+  --config-name=diffusion/sd3/sd3_sglang_rollout_colocate \
+  --cfg job --resolve
 ```

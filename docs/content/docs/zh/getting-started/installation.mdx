@@ -3,55 +3,78 @@ title: 安装
 description: 安装 UniRL 运行环境和可选文档站。
 ---
 
-UniRL 要求 Python `>=3.12,<3.14`。`torch` **不是**基础依赖：它只通过两个互斥的**引擎 extra**（`sglang` 或 `vllm`）之一引入，这样每个引擎才能锁定各自的 CUDA 栈。你必须选择其中一个引擎 extra。
+UniRL 要求 Python `>=3.12,<3.14`。两个 rollout engine 栈都使用 CUDA 13 /
+PyTorch `+cu130`，但 `vllm` 与 `sglang` 锁定的 PyTorch 版本不同，并被声明为冲突
+extra。必须把它们安装在不同虚拟环境中，不能在同一个环境里混装。
 
 ## Python 包
 
-推荐使用 [uv](https://docs.astral.sh/uv/)，它会遵循 `pyproject.toml`（`[tool.uv]`）中声明的、按引擎锁定的 CUDA index：
+`pyproject.toml` 是依赖事实源。根目录的 `setup.py` 和 `requirements.txt` 只是旧工具的
+兼容快照，没有完整描述当前 engine/CUDA 栈。
 
 ```bash
-# SGLang rollout 栈（torch 2.9.1+cu129, flash-attn-4）
-uv sync --extra sglang --extra train --extra infer --extra eval
+# vLLM / vLLM-Omni
+uv venv --python 3.12 --seed .venv
+source .venv/bin/activate
+uv pip install -e ".[vllm,train,infer]" --prerelease=allow
 
-# 或 vLLM / vLLM-Omni 栈（torch 2.11.0+cu129, vllm 0.20.0）
-uv sync --extra vllm --extra train --extra infer --extra eval
+# SGLang：使用另一个环境
+deactivate
+uv venv --python 3.12 --seed .venv-sglang
+source .venv-sglang/bin/activate
+uv pip install -e ".[sglang,train,infer]" --prerelease=allow
 ```
 
-`sglang` 和 `vllm` 被声明为冲突 extra，不能同时安装——按你的 rollout engine 选择其一。
-
-如果环境已经提供了兼容的 torch/CUDA 构建，也可以用 `pip`：
+SGLang 栈会通过 `causal-conv1d` 编译 CUDA extension。`PATH` 上的 CUDA 12 `nvcc`
+无法与 CUDA 13 PyTorch runtime 配合编译；应先安装 CUDA 13 compiler wheels，并设置
+`CUDA_HOME`：
 
 ```bash
-pip install -e ".[sglang,train,infer,eval]" --no-build-isolation
+uv pip install "nvidia-cuda-nvcc==13.0.*" "nvidia-cuda-crt==13.0.*" \
+  "nvidia-nvvm==13.0.*" "nvidia-cuda-cccl==13.0.*" "nvidia-cuda-runtime==13.0.*"
+export CUDA_HOME="$VIRTUAL_ENV/lib/python3.12/site-packages/nvidia/cu13"
+export PATH="$CUDA_HOME/bin:$PATH"
+export MAX_JOBS=4
 ```
 
-需要测试、lint 和 hooks 时加上 `dev`：
-
-```bash
-uv sync --extra sglang --extra train --extra infer --extra eval --extra dev
-pre-commit install
-```
+driver 535 主机还需要让 NVIDIA `cuda-compat-13-0` forward-compat library 出现在
+`LD_LIBRARY_PATH`。SGLang wheel 要求 glibc `>=2.34`；vLLM 栈要求 glibc `>=2.28`。
 
 ## 可选 Extra
 
-`pyproject.toml` 是依赖声明的 source of truth。各 extra：
-
 | Extra | 用途 |
 |---|---|
-| `sglang` | SGLang rollout engine + 锁定的 torch/torchvision/torchaudio `+cu129` 栈和 `flash-attn-4`（Linux） |
-| `vllm` | vLLM + vLLM-Omni rollout engine + 锁定的 torch `+cu129` 栈（Linux） |
-| `train` | WandB 和异步运行时依赖（`wandb`、`aiohttp`） |
-| `infer` | 推理侧辅助依赖（`accelerate`） |
-| `eval` | 评估/reward 依赖（`torchvision`、`easyocr`） |
+| `vllm` | vLLM、vLLM-Omni 及其 PyTorch `+cu130` 栈 |
+| `sglang` | SGLang diffusion、FlashAttention 4 及其 PyTorch `+cu130` 栈 |
+| `train` | W&B、async runtime 支持和 `math-verify` |
+| `infer` | `accelerate` 等推理侧辅助依赖 |
+| `eval` | OCR reward 所需的 PaddlePaddle、PaddleOCR、torchvision 与 Levenshtein |
+| `dataset-prep` | `datasets/` 转换器所需的 datasets、pandas、PyArrow、PyAV |
+| `cosmos3` | Cosmos3 SFT recipe 所需的 `diffusers>=0.39` |
+| `veomni` | 锁定版本的 VeOmni 分布式 backend |
+| `fastvideo` | 锁定 upstream commit 的 FastVideo |
 | `dev` | pytest、ruff、pre-commit |
 
-`sglang` 和 `vllm` 互斥（`[tool.uv].conflicts`）。在较旧 glibc 的 pod 上 vLLM wheel 常需从 sdist 现场构建；首次构建较慢（或设置 `VLLM_USE_PRECOMPILED=1`），uv 会按 pod 缓存。`setup.py` 仅兼容旧 editable install 工具。
+只安装 recipe 实际需要的能力：
 
-> 各引擎 extra 已经 pin 了匹配的 `flash-attn`（`sglang` extra pin 了 `flash-attn-4>=4.0.0b4`）；除非环境需要特定构建，不要再单独 `pip install flash-attn`。
+```bash
+# OCR reward（已包含 PaddleOCR，无需另装 OCR 包）
+uv pip install -e ".[vllm,train,infer,eval]" --prerelease=allow
+
+# 数据转换；droid100 还需要来自 engine 环境的 torch
+uv pip install -e ".[dataset-prep]"
+
+# 受限模型/backend 示例
+uv pip install -e ".[vllm,train,cosmos3]" --prerelease=allow
+uv pip install -e ".[sglang,train,veomni,infer]" --prerelease=allow
+uv pip install -e ".[vllm,train,fastvideo]" --prerelease=allow
+```
 
 ## 可选依赖
 
-`mmcv` 和 `mmdetection` 默认不安装。只有 Geneval/OpenMMLab workflow 需要时，才按 [Geneval MMCV 设置](/zh/docs/guides/geneval-mmcv-setup) 安装。
+legacy GenEval/OpenMMLab scorer 必须放在独立的 Python 3.10 sidecar 中；它的 MMCV
+栈不能装进核心 Python 3.12 / CUDA 13 环境。见
+[Geneval MMCV 设置](/zh/docs/guides/geneval-mmcv-setup)。
 
 如需把重型 reward model 放到独立 GPU 节点而非进程内运行，使用 `unirl-reward-service/` 下的独立远程 reward service（它自带依赖和 README）。远程 backend 的接线见 [奖励](/zh/docs/guides/rewards)。
 

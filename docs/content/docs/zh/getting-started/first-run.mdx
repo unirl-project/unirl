@@ -6,7 +6,7 @@ description: 组合并启动一个 UniRL 实验配方。
 启动 Ray 作业前，先做 Hydra compose check。它能提前暴露路径、override、组件契约和 batch geometry 问题。
 
 ```bash
-python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside --cfg job --resolve
+python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside --cfg job --resolve
 ```
 
 ## 单机运行
@@ -14,20 +14,31 @@ python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside --cfg job 
 单机通用启动器，第一个参数是 bucket 化的 recipe 名（`<domain>/<recipe>`）：
 
 ```bash
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside
 ```
 
 默认入口是 diffusion；用 `ENTRY` 选择其他入口：
 
 ```bash
-ENTRY=train_vlm bash examples/run_experiment_single_node.sh vlm/qwen_vl_argrpo_geo3k_mc_4x8
-ENTRY=train_pe  bash examples/run_experiment_single_node.sh pe/pe_trainside_pickscore
+ENTRY=train_ar      bash examples/run_experiment_single_node.sh ar/qwen_vl_grpo_geo3k_mc_4x8
+ENTRY=train_sft     bash examples/run_experiment_single_node.sh sft/qwen3_sft
+ENTRY=train_pe      bash examples/run_experiment_single_node.sh pe/pe_trainside_pickscore
+ENTRY=train_agentic bash examples/run_experiment_single_node.sh deep_research/deep_research_search_judge
 ```
 
 只检查启动命令，不真正跑训练：
 
 ```bash
-DRY_RUN=1 bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+DRY_RUN=1 bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside
+```
+
+Async AR 和 diffusion 使用独立的 train/rollout slab：
+
+```bash
+ENTRY=train_async_ar bash examples/run_experiment_single_node.sh \
+  ar/qwen3_grpo_4b_base_dapo_sglang_async
+ENTRY=train_async_diffusion bash examples/run_experiment_single_node.sh \
+  diffusion/bagel/bagel_vllmomni_async
 ```
 
 ## 多机运行
@@ -35,7 +46,7 @@ DRY_RUN=1 bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
 多机 role-aware 启动器：
 
 ```bash
-bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate
+bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_colocate
 ```
 
 ## 直接调用 Hydra 入口
@@ -44,7 +55,7 @@ bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colo
 
 ```bash
 python -m unirl.train_diffusion \
-  --config-name=diffusion/sd3_trainside \
+  --config-name=diffusion/sd3/sd3_trainside \
   num_devices=8
 ```
 
@@ -58,10 +69,10 @@ CLI Hydra override > launcher env var > YAML default
 
 已提交的 prompt 列表在 `datasets/` 下，例如 `datasets/pickscore/train.txt`（每行一个 prompt）和 `datasets/pickscore/test.txt`。recipe 的 `data_source` 默认指向它们。
 
-真实运行时用环境变量或 CLI override 指向绝对路径：
+真实运行时使用所选 recipe 暴露的环境变量插值或 Hydra 字段。例如 WAN recipe 的
+prompt 文件：
 
 ```bash
-DATA_PATH=/abs/path/train.json \
-OUTPUT_DIR=/abs/path/outputs/run1 \
-bash examples/run_experiment_single_node.sh diffusion/wan21_t2v
+bash examples/run_experiment_single_node.sh diffusion/wan21/wan21_t2v \
+  data_source.args.run.data_path=/abs/path/train.json
 ```

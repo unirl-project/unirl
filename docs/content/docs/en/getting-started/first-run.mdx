@@ -6,7 +6,7 @@ description: Compose and launch a UniRL experiment recipe.
 Start by composing a recipe before launching Ray work. This catches missing paths, invalid Hydra overrides, and cross-component contract errors early.
 
 ```bash
-python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside --cfg job --resolve
+python -m unirl.train_diffusion --config-name=diffusion/sd3/sd3_trainside --cfg job --resolve
 ```
 
 ## Single Node
@@ -14,20 +14,31 @@ python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside --cfg job 
 Use the generic single-node launcher when you want the scripts to prepare local Ray runtime defaults. The first argument is a bucketed recipe name (`<domain>/<recipe>`):
 
 ```bash
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside
 ```
 
 The diffusion entrypoint is the default; select another with `ENTRY`:
 
 ```bash
-ENTRY=train_vlm bash examples/run_experiment_single_node.sh vlm/qwen_vl_argrpo_geo3k_mc_4x8
-ENTRY=train_pe  bash examples/run_experiment_single_node.sh pe/pe_trainside_pickscore
+ENTRY=train_ar      bash examples/run_experiment_single_node.sh ar/qwen_vl_grpo_geo3k_mc_4x8
+ENTRY=train_sft     bash examples/run_experiment_single_node.sh sft/qwen3_sft
+ENTRY=train_pe      bash examples/run_experiment_single_node.sh pe/pe_trainside_pickscore
+ENTRY=train_agentic bash examples/run_experiment_single_node.sh deep_research/deep_research_search_judge
 ```
 
 For a dry run:
 
 ```bash
-DRY_RUN=1 bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+DRY_RUN=1 bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside
+```
+
+Async AR and diffusion use dedicated train/rollout slabs:
+
+```bash
+ENTRY=train_async_ar bash examples/run_experiment_single_node.sh \
+  ar/qwen3_grpo_4b_base_dapo_sglang_async
+ENTRY=train_async_diffusion bash examples/run_experiment_single_node.sh \
+  diffusion/bagel/bagel_vllmomni_async
 ```
 
 ## Multi Node
@@ -35,7 +46,7 @@ DRY_RUN=1 bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
 Use the role-aware launcher for multinode jobs:
 
 ```bash
-bash examples/run_experiment_multinode_taiji.sh diffusion/sd3_sglang_native_colocate
+bash examples/run_experiment_multinode.sh diffusion/sd3/sd3_sglang_rollout_colocate
 ```
 
 ## Direct Hydra Invocation
@@ -44,7 +55,7 @@ You can invoke an entrypoint directly and override fields inline:
 
 ```bash
 python -m unirl.train_diffusion \
-  --config-name=diffusion/sd3_trainside \
+  --config-name=diffusion/sd3/sd3_trainside \
   num_devices=8
 ```
 
@@ -58,10 +69,10 @@ CLI Hydra override > launcher env var > YAML default
 
 Committed prompt lists live under `datasets/`, for example `datasets/pickscore/train.txt` (one prompt per line) and `datasets/pickscore/test.txt`. Recipes point their `data_source` at these by default.
 
-For real runs, point environment variables or CLI overrides to absolute data, model, and output paths:
+For real runs, use the environment interpolation or Hydra field exposed by the
+selected recipe. For example, the WAN recipe's prompt file is:
 
 ```bash
-DATA_PATH=/abs/path/train.json \
-OUTPUT_DIR=/abs/path/outputs/run1 \
-bash examples/run_experiment_single_node.sh diffusion/wan21_t2v
+bash examples/run_experiment_single_node.sh diffusion/wan21/wan21_t2v \
+  data_source.args.run.data_path=/abs/path/train.json
 ```

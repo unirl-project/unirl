@@ -5,23 +5,38 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(docsRoot, "..");
+const sourceRoot = path.resolve(process.env.UNIRL_SOURCE_ROOT || repoRoot);
 const contentRoot = path.join(docsRoot, "content/docs");
 
-const languages = ["en", "zh"];
-const githubBlobBase = "https://github.com/haonan3/UniRL/blob/main";
+const generatedLanguage = "en";
+const cleanupLanguages = ["en", "zh"];
+const frameworkBlobBase = (
+  process.env.UNIRL_SOURCE_URL || "https://github.com/Tencent-Hunyuan/UniRL/blob/main"
+).replace(/\/+$/, "");
+const docsBlobBase = (
+  process.env.UNIRL_DOCS_SOURCE_URL || "https://github.com/unirl-project/unirl/blob/main"
+).replace(/\/+$/, "");
+const frameworkRawBase = (
+  process.env.UNIRL_SOURCE_RAW_URL ||
+  "https://raw.githubusercontent.com/Tencent-Hunyuan/UniRL/main"
+).replace(/\/+$/, "");
+const docsRawBase = (
+  process.env.UNIRL_DOCS_RAW_URL ||
+  "https://raw.githubusercontent.com/unirl-project/unirl/main"
+).replace(/\/+$/, "");
+const strict = process.env.UNIRL_SYNC_STRICT
+  ? !["0", "false", "no"].includes(process.env.UNIRL_SYNC_STRICT.toLowerCase())
+  : Boolean(process.env.CI);
 
-// Output locations from the previous "README Reference" layout. They are removed
-// on every run so the old nested section never lingers next to the new flat pages.
 const legacyDirs = [
-  path.join(contentRoot, "en/reference/readmes"),
-  ...["architecture", "configuration", "guides", "getting-started"].map((section) =>
-    path.join(contentRoot, "en", section, "readme-reference"),
+  ...cleanupLanguages.map((language) => path.join(contentRoot, language, "reference/readmes")),
+  ...cleanupLanguages.flatMap((language) =>
+    ["architecture", "configuration", "guides", "getting-started"].map((section) =>
+      path.join(contentRoot, language, section, "readme-reference"),
+    ),
   ),
 ];
 
-// Each README is promoted to a normal page inside its owning section. The page
-// file is `readme-<slug>.mdx`, which keeps a single git-ignore glob while the
-// sidebar label comes from the `title` frontmatter.
 const readmes = [
   {
     source: "README.md",
@@ -32,6 +47,7 @@ const readmes = [
   },
   {
     source: "docs/README.md",
+    siteLocal: true,
     section: "getting-started",
     slug: "docs-site",
     title: "Docs Site README",
@@ -116,30 +132,59 @@ function stripTopLevelHeading(markdown) {
 
 function rewriteRelativeMarkdownLinks(entry, markdown) {
   const sourceDir = path.posix.dirname(entry.source);
+  const sourceBase = entry.siteLocal ? docsBlobBase : frameworkBlobBase;
 
-  return markdown.replace(
-    /(?<!!)\[([^\]]+)\]\((?!#|https?:\/\/|mailto:|\/)([^)\s]+\.md(?:#[^)]+)?)\)/g,
-    (_match, label, target) => {
-      const [targetPath, anchor = ""] = target.split("#");
-      const resolvedPath = path.posix.normalize(path.posix.join(sourceDir, targetPath));
-      const resolvedAnchor = anchor ? `#${anchor}` : "";
-
-      return `[${label}](${githubBlobBase}/${resolvedPath}${resolvedAnchor})`;
-    },
-  );
+  return markdown
+    .replace(
+      /\[(!\[[^\]]*]\([^)]+\))]\((?!#|[a-z][a-z0-9+.-]*:|\/)([^)\s]+)\)/gi,
+      (_match, image, target) => {
+        const [targetPath, anchor = ""] = target.split("#");
+        const resolvedPath = path.posix.normalize(path.posix.join(sourceDir, targetPath));
+        const resolvedAnchor = anchor ? `#${anchor}` : "";
+        return `[${image}](${sourceBase}/${resolvedPath}${resolvedAnchor})`;
+      },
+    )
+    .replace(
+      /(?<!!)\[([^\]]+)\]\((?!#|[a-z][a-z0-9+.-]*:|\/)([^)\s]+)\)/gi,
+      (_match, label, target) => {
+        const [targetPath, anchor = ""] = target.split("#");
+        const resolvedPath = path.posix.normalize(path.posix.join(sourceDir, targetPath));
+        const resolvedAnchor = anchor ? `#${anchor}` : "";
+        return `[${label}](${sourceBase}/${resolvedPath}${resolvedAnchor})`;
+      },
+    );
 }
 
-function frontmatterValue(value) {
-  return JSON.stringify(value);
+function rewriteMdxIncompatibleMarkup(entry, markdown) {
+  const sourceDir = path.posix.dirname(entry.source);
+  const rawBase = entry.siteLocal ? docsRawBase : frameworkRawBase;
+  return markdown
+    .replace(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (_match, attributes) => {
+      const rewritten = attributes.replace(
+        /\bsrc=(["'])([^"']+)\1/i,
+        (srcMatch, quote, target) => {
+          if (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(target)) {
+            return srcMatch;
+          }
+          const resolvedPath = path.posix.normalize(path.posix.join(sourceDir, target));
+          return `src=${quote}${rawBase}/${resolvedPath}${quote}`;
+        },
+      );
+      return `<img${rewritten.replace(/\s*\/?\s*$/, "")} />`;
+    })
+    .replace(/<br\s*\/?>/gi, "<br />")
+    .replace(/<(https?:\/\/[^>\s]+)>/g, (_match, target) => `[${target}](${target})`);
 }
 
 function renderPage(entry, body) {
-  const content = stripTopLevelHeading(rewriteRelativeMarkdownLinks(entry, body)).trim();
-  const sourceUrl = `${githubBlobBase}/${entry.source}`;
+  const rewritten = rewriteRelativeMarkdownLinks(entry, body);
+  const content = stripTopLevelHeading(rewriteMdxIncompatibleMarkup(entry, rewritten)).trim();
+  const sourceBase = entry.siteLocal ? docsBlobBase : frameworkBlobBase;
+  const sourceUrl = `${sourceBase}/${entry.source}`;
 
   return `---
-title: ${frontmatterValue(entry.title)}
-description: ${frontmatterValue(entry.description)}
+title: ${JSON.stringify(entry.title)}
+description: ${JSON.stringify(entry.description)}
 ---
 
 {/* Generated from ${entry.source} by docs/scripts/sync-readme-reference.mjs. Edit the source README, not this file. */}
@@ -157,7 +202,6 @@ async function removeGeneratedPages(dir) {
   } catch {
     return;
   }
-
   await Promise.all(
     entries
       .filter((entry) => entry.isFile() && entry.name.startsWith("readme-") && entry.name.endsWith(".mdx"))
@@ -166,51 +210,55 @@ async function removeGeneratedPages(dir) {
 }
 
 async function main() {
-  for (const dir of legacyDirs) {
-    await rm(dir, { recursive: true, force: true });
-  }
-
-  const sections = new Set(readmes.map((entry) => entry.section));
-  for (const lang of languages) {
-    for (const section of sections) {
-      await removeGeneratedPages(path.join(contentRoot, lang, section));
-    }
-  }
-
-  let count = 0;
-  const skipped = [];
+  const sources = [];
+  const missing = [];
   for (const entry of readmes) {
-    let body;
     try {
-      body = await readFile(path.join(repoRoot, entry.source), "utf8");
+      sources.push({
+        entry,
+        body: await readFile(
+          path.join(entry.siteLocal ? repoRoot : sourceRoot, entry.source),
+          "utf8",
+        ),
+      });
     } catch (error) {
-      // The docs site can be built in isolation (e.g. a docs-only repo), where
-      // the package READMEs that live next to the code are not checked out.
-      // Skip those sources instead of failing the whole build; the matching
-      // `readme-<slug>` pages simply won't be generated. Behavior is unchanged
-      // when every source README is present.
       if (error.code === "ENOENT") {
-        skipped.push(entry.source);
+        missing.push(entry.source);
         continue;
       }
       throw error;
     }
-    const page = renderPage(entry, body);
+  }
 
-    for (const lang of languages) {
-      const dir = path.join(contentRoot, lang, entry.section);
-      await mkdir(dir, { recursive: true });
-      await writeFile(path.join(dir, `readme-${entry.slug}.mdx`), page);
-      count += 1;
+  if (strict && missing.length > 0) {
+    throw new Error(
+      `Strict README sync requires every configured source (framework root: ${sourceRoot}). Missing:\n  - ${missing.join("\n  - ")}`,
+    );
+  }
+
+  for (const dir of legacyDirs) {
+    await rm(dir, { recursive: true, force: true });
+  }
+  const sections = new Set(readmes.map((entry) => entry.section));
+  for (const language of cleanupLanguages) {
+    for (const section of sections) {
+      await removeGeneratedPages(path.join(contentRoot, language, section));
     }
   }
 
+  for (const { entry, body } of sources) {
+    const page = renderPage(entry, body);
+    const dir = path.join(contentRoot, generatedLanguage, entry.section);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, `readme-${entry.slug}.mdx`), page);
+  }
+
   console.log(
-    `Generated ${count} embedded README pages (${readmes.length - skipped.length}/${readmes.length} READMEs x ${languages.length} languages)`,
+    `Generated ${sources.length}/${readmes.length} English README reference pages from ${sourceRoot}`,
   );
-  if (skipped.length > 0) {
+  if (missing.length > 0) {
     console.warn(
-      `Skipped ${skipped.length} README source(s) not present in this checkout:\n  - ${skipped.join("\n  - ")}`,
+      `Loose mode skipped ${missing.length} README source(s):\n  - ${missing.join("\n  - ")}`,
     );
   }
 }

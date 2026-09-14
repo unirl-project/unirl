@@ -10,17 +10,17 @@ description: 常见 coding-agent 任务对应的文件、检查和风险。
 Read:
 
 - `unirl/config/README.md`
-- 最接近的 `examples/<domain>/<recipe>.yaml`
+- 对应 `examples/` 训练域下最接近的 recipe YAML
 
 Edit:
 
-- `examples/<domain>/<new_recipe>.yaml`
+- 同一个训练域/模型目录下的新 YAML
 - 若是维护中的 recipe，同步更新 `/zh/docs/configuration/experiments` 和英文对应页
 
 Check:
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<new_recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
 ```
 
 Risk: placement、rollout batch size、train-stack batch geometry 不匹配。
@@ -146,7 +146,7 @@ See also: `unirl/reward/local/base.py`、`unirl/types/reward.py`。
 先运行：
 
 ```bash
-python -m unirl.train_diffusion --config-name=<domain>/<recipe> --cfg job --resolve
+python -m unirl.train_diffusion --config-name=<path-under-examples> --cfg job --resolve
 ```
 
 然后按顺序看：

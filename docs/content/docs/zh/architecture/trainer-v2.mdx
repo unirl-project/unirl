@@ -14,9 +14,13 @@ UniRL 运行在一套 trainer 架构上：single-controller 的 `Remote` / `plac
 | 入口 | Trainer | 领域 |
 |---|---|---|
 | `python -m unirl.train_diffusion` | `trainer/diffusion.py` | Diffusion 图像 / 视频 |
-| `python -m unirl.train_vlm` | `trainer/vlm.py` | 自回归 VLM / LLM |
+| `python -m unirl.train_ar` | `trainer/ar.py` | 自回归文本 / VLM |
+| `python -m unirl.train_sft` | `trainer/sft.py` | Supervised fine-tuning |
+| `python -m unirl.train_async_ar` | `trainer/async_ar.py` | train/rollout 分 slab 的异步 AR |
+| `python -m unirl.train_async_diffusion` | `trainer/async_diffusion.py` | 分 slab 的异步 diffusion |
 | `python -m unirl.train_pe` | `trainer/pe.py` | Prompt-enhancer（AR + diffusion 联合） |
 | `python -m unirl.train_unified_model` | `trainer/unified_model.py` | HunyuanImage3（AR + diffusion 混合） |
+| `python -m unirl.train_agentic` | `trainer/agentic.py` | 由 service 打分的 agentic tool use |
 
 共享生命周期在 `trainer/base.py`：申请 Ray `DevicePool`，在 placement 块里构建 rollout 与
 train worker，然后跑 rollout → reward → advantage → train → 可选 weight-sync 循环。
@@ -46,7 +50,7 @@ single-controller 层（`unirl/distributed/group/`：`Remote`、`placement`、`R
 
 两个 `Remote` sibling 分担训练工作：
 
-- **`FSDPBackend`**（`unirl/train/backend/fsdp.py`）持有可训练模型：在 FSDP2 wrap 之前做结构注入
+- **`FSDPBackend`**（`unirl/train/backend/fsdp/backend.py`）持有可训练模型：在 FSDP2 wrap 之前做结构注入
   （LoRA / NFT / mirror EMA），加上 optimizer、LR scheduler、EMA shadow、eval-EMA 切换、
   checkpoint 和 onload/offload。
 - **`TrainStack`**（`unirl/train/stack.py`）负责 loss/backward 排序。它持有一个 `FSDPBackend`
@@ -65,7 +69,9 @@ single-controller 层（`unirl/distributed/group/`：`Remote`、`placement`、`R
 
 ## 配置形态
 
-`examples/<domain>/*.yaml` 是按训练域分桶的目录树；每个 recipe 用 `_target_` 实例化各 sibling（没有 Hydra config-group 覆盖）：
+`examples/` 下的 YAML 按训练域组织，需要时再增加模型子目录（例如
+`examples/diffusion/sd3/sd3_trainside.yaml`）。每个 recipe 用 `_target_`
+实例化各 sibling（没有 Hydra config-group 覆盖）：
 
 ```yaml
 backend:
@@ -91,10 +97,11 @@ stack:
   num_updates_per_batch: 2
 ```
 
-## 接下来的方向
+## 分布式 Backend
 
-Roadmap 中的 `VeOmniBackend` 正是面向这一契约：新 backend 实现与 `FSDPBackend` 相同的 `Remote`
-表面，并把 `TrainTopology` 映射到并行 plan（FSDP / SP / EP），而不是硬编码 shard size。见
-[Roadmap 路线图](/zh/docs/architecture/roadmap) 的 Infra 线。
+`FSDPBackend` 是标准路径。`VeOmniBackend` 也已可用于 topology-specific 的 FSDP2、
+sequence parallel 和 expert parallel recipe；当前 VeOmni recipe 要求
+`fsdp_mode=full`、开启 mixed precision，并关闭 CPU offload。应从现有
+`*_veomni_*` recipe 开始，而不是把这些约束当作通用命令行开关。
 
 关于扩展应建在哪一层，见 [扩展 UniRL](/zh/docs/guides/extending)。

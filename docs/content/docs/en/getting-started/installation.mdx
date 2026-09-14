@@ -3,66 +3,81 @@ title: Installation
 description: Install UniRL and the optional documentation site.
 ---
 
-UniRL requires Python `>=3.12,<3.14`. `torch` is intentionally **not** a base
-dependency: it enters through exactly one mutually-exclusive **engine extra**
-(`sglang` or `vllm`), which is what lets each engine pin its own locked CUDA
-stack. You must pick one engine extra.
+UniRL requires Python `>=3.12,<3.14`. Both supported rollout-engine stacks use
+CUDA 13 / PyTorch `+cu130`, but `vllm` and `sglang` pin different PyTorch
+versions and are declared as conflicting extras. Install them in separate
+virtual environments; never combine both engine extras in one environment.
 
 ## Python Package
 
-The recommended path is [uv](https://docs.astral.sh/uv/), which honors the
-locked per-engine CUDA indexes declared in `pyproject.toml` (`[tool.uv]`):
+`pyproject.toml` is the dependency source of truth. The root `setup.py` and
+`requirements.txt` are legacy compatibility
+snapshots and do not encode the current engine/CUDA stacks.
 
 ```bash
-# SGLang rollout stack (torch 2.9.1+cu129, flash-attn-4)
-uv sync --extra sglang --extra train --extra infer --extra eval
+# vLLM / vLLM-Omni
+uv venv --python 3.12 --seed .venv
+source .venv/bin/activate
+uv pip install -e ".[vllm,train,infer]" --prerelease=allow
 
-# OR the vLLM / vLLM-Omni stack (torch 2.11.0+cu129, vllm 0.20.0)
-uv sync --extra vllm --extra train --extra infer --extra eval
+# SGLang: use a different environment
+deactivate
+uv venv --python 3.12 --seed .venv-sglang
+source .venv-sglang/bin/activate
+uv pip install -e ".[sglang,train,infer]" --prerelease=allow
 ```
 
-`sglang` and `vllm` are declared as conflicting extras, so they cannot be
-installed together — choose the one matching your rollout engine.
-
-A plain `pip` install also works if your environment already provides a
-compatible torch/CUDA build:
+The SGLang stack reaches `causal-conv1d`, which compiles a CUDA extension. A
+CUDA 12 `nvcc` on `PATH` cannot compile against the CUDA 13 PyTorch runtime.
+Install the CUDA 13 compiler wheels first and point `CUDA_HOME` at them:
 
 ```bash
-pip install -e ".[sglang,train,infer,eval]" --no-build-isolation
+uv pip install "nvidia-cuda-nvcc==13.0.*" "nvidia-cuda-crt==13.0.*" \
+  "nvidia-nvvm==13.0.*" "nvidia-cuda-cccl==13.0.*" "nvidia-cuda-runtime==13.0.*"
+export CUDA_HOME="$VIRTUAL_ENV/lib/python3.12/site-packages/nvidia/cu13"
+export PATH="$CUDA_HOME/bin:$PATH"
+export MAX_JOBS=4
 ```
 
-Add `dev` for tests, linting, and hooks:
-
-```bash
-uv sync --extra sglang --extra train --extra infer --extra eval --extra dev
-pre-commit install
-```
+On driver-535 hosts, make NVIDIA's `cuda-compat-13-0` forward-compat libraries
+available through `LD_LIBRARY_PATH`. SGLang wheels also require glibc `>=2.34`;
+the vLLM stack requires glibc `>=2.28`.
 
 ## Optional Extras
 
-`pyproject.toml` is the dependency source of truth. Extras:
-
 | Extra | Purpose |
 |---|---|
-| `sglang` | SGLang rollout engine + its locked torch/torchvision/torchaudio `+cu129` stack and `flash-attn-4` (Linux) |
-| `vllm` | vLLM + vLLM-Omni rollout engine + its locked torch `+cu129` stack (Linux) |
-| `train` | WandB and async runtime dependencies (`wandb`, `aiohttp`) |
-| `infer` | inference-side helpers (`accelerate`) |
-| `eval` | evaluation/reward dependencies (`torchvision`, `easyocr`) |
+| `vllm` | vLLM, vLLM-Omni, and its PyTorch `+cu130` stack |
+| `sglang` | SGLang diffusion, FlashAttention 4, and its PyTorch `+cu130` stack |
+| `train` | W&B, async runtime support, and `math-verify` |
+| `infer` | inference-side helpers such as `accelerate` |
+| `eval` | PaddlePaddle, PaddleOCR, torchvision, and Levenshtein support for OCR rewards |
+| `dataset-prep` | converters under `datasets/` (`datasets`, pandas, PyArrow, PyAV) |
+| `cosmos3` | `diffusers>=0.39` for Cosmos3 SFT recipes |
+| `veomni` | the pinned VeOmni distributed backend |
+| `fastvideo` | the pinned upstream FastVideo source snapshot |
 | `dev` | pytest, ruff, and pre-commit |
 
-`sglang` and `vllm` are mutually exclusive (`[tool.uv].conflicts`). The vLLM
-wheel often has to build from sdist on older-glibc pods; the first build is slow
-(or set `VLLM_USE_PRECOMPILED=1`) and uv caches it per pod. `setup.py` exists
-only for older editable-install tooling.
+Install only the capabilities required by the selected recipe:
 
-> The per-engine extras already pin a matching `flash-attn` (the `sglang` extra
-> pins `flash-attn-4>=4.0.0b4`); do not separately `pip install flash-attn`
-> unless your environment needs a specific build.
+```bash
+# OCR reward (PaddleOCR is included; no separate OCR package is needed)
+uv pip install -e ".[vllm,train,infer,eval]" --prerelease=allow
+
+# Dataset converters; droid100 additionally needs torch from an engine env
+uv pip install -e ".[dataset-prep]"
+
+# Restricted model/backend examples
+uv pip install -e ".[vllm,train,cosmos3]" --prerelease=allow
+uv pip install -e ".[sglang,train,veomni,infer]" --prerelease=allow
+uv pip install -e ".[vllm,train,fastvideo]" --prerelease=allow
+```
 
 ## Optional Model and Reward Dependencies
 
-`mmcv` and `mmdetection` are intentionally not installed by default. Install them only for Geneval/OpenMMLab workflows, following [Geneval MMCV Setup](/en/docs/guides/geneval-mmcv-setup).
+The legacy GenEval/OpenMMLab scorer must run in a separate Python 3.10 sidecar;
+its MMCV stack is incompatible with the core Python 3.12 / CUDA 13 environment.
+See [Geneval MMCV Setup](/en/docs/guides/geneval-mmcv-setup).
 
 To run heavy reward models on their own GPU node instead of in-process, use the standalone remote reward service in `unirl-reward-service/` (it ships its own dependencies and README). See [Rewards](/en/docs/guides/rewards) for wiring the remote backend.
 

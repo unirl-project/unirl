@@ -12,6 +12,18 @@ UniRL 训练是 prompt-first：数据文件提供 prompt，rollout engine 生成
 用 `DATA_PATH`（环境变量，recipe 会插值它）或覆盖 recipe 的 `data_source` `data_path`（Hydra override）指定 prompt 文件。读取器
 （`unirl/data/datasets.py`）接受三种扩展名，其它会报错：
 
+`datasets/` 下的转换器使用与 engine 无关的独立 `dataset-prep` extra：
+
+```bash
+uv venv --python 3.12 --seed .venv-dataset
+source .venv-dataset/bin/activate
+uv pip install -e ".[dataset-prep]"
+python datasets/geo3k_mc/prepare_geo3k_mc.py --out-dir data/geo3k_mc
+```
+
+`datasets/droid100/prepare_droid100.py` 还会 import torch；应在某个 engine 环境中运行，
+或为仅 CPU 的数据准备显式安装 torch。
+
 | 扩展名 | 解析 |
 |---|---|
 | `.txt` | 每个非空行一个 prompt，每行变成 `{"prompt": <line>}`。 |
@@ -94,15 +106,20 @@ Time-lapse of clouds rolling over a desert canyon.
 
 ```bash
 # 1. 准备 prompts.json（{"prompt": ...} 对象的 list）。
-# 2. 让 DATA_PATH 指向它，并启动一个数据源读文件的 recipe。
-DATA_PATH=/abs/path/prompts.json \
-OUTPUT_DIR=/abs/path/outputs/run1 \
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+# 2. 覆盖所选 recipe 的 data path。
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside \
+  data_source.args.run.data_path=/abs/path/prompts.json
 ```
 
 启动 Ray 作业前先做 compose check：
 
 ```bash
-DATA_PATH=/abs/path/prompts.json \
-python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside --cfg job --resolve
+python -m unirl.train_diffusion \
+  --config-name=diffusion/sd3/sd3_trainside \
+  data_source.args.run.data_path=/abs/path/prompts.json \
+  --cfg job --resolve
 ```
+
+SFT 与 agentic 数据有专用转换器和 canonical recipe，分别见
+`datasets/sft_manifests/`、`datasets/searchgen/` 与 `datasets/asearcher/` 的 README；
+其中给出了准确的转换命令以及 `train_sft` / `train_agentic` 启动方式。

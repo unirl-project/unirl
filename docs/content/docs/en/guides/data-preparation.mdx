@@ -15,6 +15,20 @@ recipe interpolates it) or by overriding the `data_source` `data_path` (Hydra
 override). The reader (`unirl/data/datasets.py`) accepts three extensions;
 anything else raises:
 
+Converters under `datasets/` use the separate, engine-agnostic
+`dataset-prep` extra:
+
+```bash
+uv venv --python 3.12 --seed .venv-dataset
+source .venv-dataset/bin/activate
+uv pip install -e ".[dataset-prep]"
+python datasets/geo3k_mc/prepare_geo3k_mc.py --out-dir data/geo3k_mc
+```
+
+`datasets/droid100/prepare_droid100.py` additionally imports torch. Run that
+converter in one engine environment or install torch explicitly for CPU-only
+preparation.
+
 | Extension | Parsing |
 |---|---|
 | `.txt` | One prompt per non-empty line. Each line becomes `{"prompt": <line>}`. |
@@ -107,15 +121,21 @@ order); training batches always come from the configured `data_path`. See
 
 ```bash
 # 1. Author prompts.json (a list of {"prompt": ...} objects).
-# 2. Point DATA_PATH at it and launch a recipe whose data source reads files.
-DATA_PATH=/abs/path/prompts.json \
-OUTPUT_DIR=/abs/path/outputs/run1 \
-bash examples/run_experiment_single_node.sh diffusion/sd3_trainside
+# 2. Override the selected recipe's data path.
+bash examples/run_experiment_single_node.sh diffusion/sd3/sd3_trainside \
+  data_source.args.run.data_path=/abs/path/prompts.json
 ```
 
 Validate composition before launching Ray work:
 
 ```bash
-DATA_PATH=/abs/path/prompts.json \
-python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside --cfg job --resolve
+python -m unirl.train_diffusion \
+  --config-name=diffusion/sd3/sd3_trainside \
+  data_source.args.run.data_path=/abs/path/prompts.json \
+  --cfg job --resolve
 ```
+
+SFT and agentic datasets have dedicated converters and canonical recipes under
+`datasets/sft_manifests/`, `datasets/searchgen/`, and `datasets/asearcher/`.
+Their README files provide the exact converter and `train_sft` or
+`train_agentic` command.
