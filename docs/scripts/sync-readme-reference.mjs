@@ -180,6 +180,8 @@ function rewriteMdxIncompatibleMarkup(entry, markdown) {
   const sourceDir = path.posix.dirname(entry.source);
   const rawBase = entry.siteLocal ? docsRawBase : frameworkRawBase;
   return markdown
+    // HTML comments are valid in Markdown/GitHub, but MDX treats `<!--` as JSX.
+    .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (_match, attributes) => {
       const rewritten = attributes.replace(
         /\bsrc=(["'])([^"']+)\1/i,
